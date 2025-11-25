@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# Generated output files (can be regenerated)
+*_timeline.csv
+*_timeline_chart.png
+*_timeline_data.csv
+*_with_dob_filing_years.csv
+*_filing_years_summary.csv
+*_classification_summary.csv
+*_classified_with_evidence.csv
+*_construction_summary.csv
+*_new_construction.csv
+*_for_manual_review.csv
+*_with_construction_classification.csv
+*_construction_dates_temp.csv
+*_with_construction_dates.csv
+*_extended_affordability_proportion.png
+*_extended_affordability_units_by_year.csv
+*_extended_affordability_by_year.csv
+new_construction_bins.txt
+new_construction_bins_with_details.csv
+new_construction_missing_bins.csv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+

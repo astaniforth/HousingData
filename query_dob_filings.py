@@ -1,0 +1,238 @@
+import pandas as pd
+import requests
+import time
+import sys
+import os
+from urllib.parse import quote
+
+# NYC Open Data API endpoints
+DOB_JOB_APPLICATIONS_URL = "https://data.cityofnewyork.us/resource/ic3t-wcy2.json"
+DOB_NOW_JOB_APPLICATIONS_URL = "https://data.cityofnewyork.us/resource/w9ak-ipjd.json"
+
+def query_dob_api(url, bin_list, job_type="NB", bin_column="bin", limit=50000):
+    """
+    Query DOB API for job filings matching BINs and job type.
+    
+    Args:
+        url: API endpoint URL
+        bin_list: List of BINs to search for
+        job_type: Job type to filter (default "NB" for new building)
+        bin_column: Column name for BIN (varies by API: "bin" or "bin__")
+        limit: Maximum number of records to retrieve
+    
+    Returns:
+        DataFrame with matching records
+    """
+    print(f"\nQuerying API: {url}")
+    print(f"Looking for job type: {job_type}")
+    print(f"BIN column: {bin_column}")
+    print(f"Number of BINs to check: {len(bin_list)}")
+    
+    all_results = []
+    
+    # Query in batches to avoid URL length limits
+    batch_size = 50
+    for i in range(0, len(bin_list), batch_size):
+        batch = bin_list[i:i+batch_size]
+        
+        # Build query: job_type = 'NB' AND bin_column IN (list of bins)
+        # Note: BINs need to be strings in the query
+        bin_filter = " OR ".join([f"{bin_column}='{bin_num}'" for bin_num in batch])
+        query = f"job_type='{job_type}' AND ({bin_filter})"
+        
+        params = {
+            '$where': query,
+            '$limit': limit
+        }
+        
+        try:
+            print(f"  Querying batch {i//batch_size + 1} (BINs {i+1}-{min(i+batch_size, len(bin_list))})...")
+            response = requests.get(url, params=params, timeout=30)
+            response.raise_for_status()
+            
+            data = response.json()
+            if data:
+                all_results.extend(data)
+                print(f"    Found {len(data)} records")
+            else:
+                print(f"    No records found")
+            
+            # Rate limiting
+            time.sleep(0.5)
+            
+        except Exception as e:
+            print(f"    Error querying batch: {str(e)}")
+            if hasattr(e, 'response') and e.response is not None:
+                print(f"    Response: {e.response.text[:200]}")
+            continue
+    
+    if all_results:
+        df = pd.DataFrame(all_results)
+        print(f"\nTotal records found: {len(df)}")
+        return df
+    else:
+        print(f"\nNo records found")
+        return pd.DataFrame()
+
+def query_dob_filings(bin_file_path, output_path=None):
+    """
+    Query both DOB APIs for new building filings associated with BINs.
+    
+    Args:
+        bin_file_path: Path to file containing BINs (one per line)
+        output_path: Path to save results CSV
+    """
+    
+    # Read BINs from file
+    print(f"Reading BINs from: {bin_file_path}")
+    with open(bin_file_path, 'r') as f:
+        bins = [line.strip() for line in f if line.strip()]
+    
+    # Convert to integers and remove duplicates
+    bins = sorted(list(set([int(bin_str) for bin_str in bins if bin_str.isdigit()])))
+    print(f"Found {len(bins)} unique BINs\n")
+    
+    # Query DOB Job Application Filings API (uses bin__ column)
+    print("=" * 70)
+    print("QUERYING DOB JOB APPLICATION FILINGS")
+    print("=" * 70)
+    dob_filings = query_dob_api(DOB_JOB_APPLICATIONS_URL, bins, job_type="NB", bin_column="bin__")
+    
+    # Query DOB NOW Job Applications API (uses bin column and "New Building" as job type)
+    print("\n" + "=" * 70)
+    print("QUERYING DOB NOW JOB APPLICATIONS")
+    print("=" * 70)
+    dob_now_filings = query_dob_api(DOB_NOW_JOB_APPLICATIONS_URL, bins, job_type="New Building", bin_column="bin")
+    
+    # Combine results
+    print("\n" + "=" * 70)
+    print("SUMMARY")
+    print("=" * 70)
+    
+    if not dob_filings.empty:
+        print(f"\nDOB Job Application Filings: {len(dob_filings)} records")
+        print(f"Columns: {', '.join(dob_filings.columns.tolist())}")
+        # Add source column
+        dob_filings['source'] = 'DOB_Job_Applications'
+    
+    if not dob_now_filings.empty:
+        print(f"\nDOB NOW Job Applications: {len(dob_now_filings)} records")
+        print(f"Columns: {', '.join(dob_now_filings.columns.tolist())}")
+        # Add source column
+        dob_now_filings['source'] = 'DOB_NOW'
+    
+    # Normalize BIN columns before combining
+    # DOB Job Applications uses "bin__", DOB NOW uses "bin"
+    if not dob_filings.empty and 'bin__' in dob_filings.columns:
+        dob_filings['bin_normalized'] = dob_filings['bin__'].astype(str)
+    if not dob_now_filings.empty and 'bin' in dob_now_filings.columns:
+        dob_now_filings['bin_normalized'] = dob_now_filings['bin'].astype(str)
+    
+    # Combine both dataframes - use all columns and fill missing with NaN
+    if not dob_filings.empty and not dob_now_filings.empty:
+        # Get all unique columns
+        all_cols = list(set(dob_filings.columns.tolist() + dob_now_filings.columns.tolist()))
+        
+        # Ensure bin_normalized and source are included
+        if 'bin_normalized' not in all_cols:
+            all_cols.append('bin_normalized')
+        if 'source' not in all_cols:
+            all_cols.append('source')
+        
+        # Reindex both dataframes to have the same columns
+        dob_filings_aligned = dob_filings.reindex(columns=all_cols)
+        dob_now_filings_aligned = dob_now_filings.reindex(columns=all_cols)
+        
+        combined = pd.concat([dob_filings_aligned, dob_now_filings_aligned], ignore_index=True)
+    elif not dob_filings.empty:
+        combined = dob_filings.copy()
+        if 'bin__' in combined.columns and 'bin_normalized' not in combined.columns:
+            combined['bin_normalized'] = combined['bin__'].astype(str)
+    elif not dob_now_filings.empty:
+        combined = dob_now_filings.copy()
+        if 'bin' in combined.columns and 'bin_normalized' not in combined.columns:
+            combined['bin_normalized'] = combined['bin'].astype(str)
+    else:
+        print("\nNo filings found in either API")
+        return
+    
+    print(f"\nTotal combined records: {len(combined)}")
+    
+    # Show unique BINs found
+    if 'bin_normalized' in combined.columns:
+        unique_bins = combined['bin_normalized'].dropna().unique()
+        print(f"Unique BINs with filings: {len(unique_bins)}")
+        try:
+            bin_nums = sorted([int(b) for b in unique_bins if str(b).strip() and str(b).isdigit()])[:20]
+            print(f"Sample BINs with filings: {bin_nums}...")
+        except:
+            print(f"Sample BINs: {list(unique_bins)[:20]}")
+    
+    # Save results
+    if output_path is None:
+        output_path = bin_file_path.replace('.txt', '_dob_filings.csv')
+    
+    combined.to_csv(output_path, index=False)
+    print(f"\nResults saved to: {output_path}")
+    
+    # Also create a summary by BIN
+    if 'bin_normalized' in combined.columns:
+        summary_path = bin_file_path.replace('.txt', '_dob_filings_summary.csv')
+        summary = combined.groupby('bin_normalized').size().reset_index()
+        summary.columns = ['BIN', 'Number_of_Filings']
+        summary = summary.sort_values('Number_of_Filings', ascending=False)
+        summary.to_csv(summary_path, index=False)
+        print(f"Summary by BIN saved to: {summary_path}")
+    
+    # Show sample records
+    print("\n" + "=" * 70)
+    print("SAMPLE RECORDS")
+    print("=" * 70)
+    if len(combined) > 0:
+        # Show first few columns that are likely most relevant
+        sample_cols = ['bin_normalized', 'job_type', 'source']
+        if 'bin__' in combined.columns:
+            sample_cols.insert(0, 'bin__')
+        elif 'bin' in combined.columns:
+            sample_cols.insert(0, 'bin')
+        
+        # Add date columns if available
+        date_cols = [col for col in combined.columns if 'date' in col.lower() or 'filing' in col.lower()]
+        sample_cols.extend(date_cols[:2])  # Add up to 2 date columns
+        
+        # Add other relevant columns
+        if 'job__' in combined.columns:
+            sample_cols.append('job__')
+        if 'job_filing_number' in combined.columns:
+            sample_cols.append('job_filing_number')
+        if 'street_name' in combined.columns:
+            sample_cols.append('street_name')
+        if 'house__' in combined.columns:
+            sample_cols.append('house__')
+        elif 'house_no' in combined.columns:
+            sample_cols.append('house_no')
+        
+        available_cols = [col for col in sample_cols if col in combined.columns]
+        print(combined[available_cols].head(10).to_string(index=False))
+    
+    return combined
+
+if __name__ == "__main__":
+    if len(sys.argv) > 1:
+        bin_file = sys.argv[1]
+    else:
+        # Look for BIN file
+        if os.path.exists('new_construction_bins.txt'):
+            bin_file = 'new_construction_bins.txt'
+            print(f"Using BIN file: {bin_file}\n")
+        else:
+            print("Please provide the path to the BIN file:")
+            print("Usage: python query_dob_filings.py <path_to_bin_file>")
+            sys.exit(1)
+    
+    if not os.path.exists(bin_file):
+        print(f"Error: File '{bin_file}' not found.")
+        sys.exit(1)
+    
+    query_dob_filings(bin_file)
+
