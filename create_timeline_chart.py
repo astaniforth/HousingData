@@ -40,38 +40,38 @@ def create_timeline_chart(timeline_csv, output_path=None):
     """
     
     print(f"Reading timeline data from: {timeline_csv}...")
-    df = pd.read_csv(timeline_csv)
-    print(f"Total timeline entries: {len(df):,}\n")
-    
+    timeline_data = pd.read_csv(timeline_csv)
+    print(f"Total timeline entries: {len(timeline_data):,}\n")
+
     # Parse dates
-    df['Date_Parsed'] = df['Date'].apply(parse_date)
-    df = df[df['Date_Parsed'].notna()].copy()
+    timeline_data['Date_Parsed'] = timeline_data['Date'].apply(parse_date)
+    timeline_data = timeline_data[timeline_data['Date_Parsed'].notna()].copy()
     
     # Group by BIN and extract timeline data
     print("Processing timeline data by BIN...")
-    bin_timelines = []
+    building_timelines = []
     
-    for bin_val in df['BIN'].unique():
-        bin_data = df[df['BIN'] == bin_val].copy()
-        address = bin_data['Address'].iloc[0] if len(bin_data) > 0 else 'N/A'
+    for building_bin in timeline_data['BIN'].unique():
+        building_timeline_data = timeline_data[timeline_data['BIN'] == building_bin].copy()
+        address = building_timeline_data['Address'].iloc[0] if len(building_timeline_data) > 0 else 'N/A'
         
         # Find DOB/DOB NOW application timeline
         dob_submitted = None
         dob_approved = None
         
         # Get first DOB or DOB NOW application submitted
-        dob_submitted_events = bin_data[
-            (bin_data['Source'].isin(['DOB', 'DOB NOW'])) & 
-            (bin_data['Event'].str.contains('Application submitted', na=False))
+        dob_submitted_events = building_timeline_data[
+            (building_timeline_data['Source'].isin(['DOB', 'DOB NOW'])) &
+            (building_timeline_data['Event'].str.contains('Application submitted', na=False))
         ]
         if len(dob_submitted_events) > 0:
             dob_submitted_events = dob_submitted_events.sort_values('Date_Parsed')
             dob_submitted = dob_submitted_events.iloc[0]['Date_Parsed']
         
         # Get first DOB or DOB NOW application approved
-        dob_approved_events = bin_data[
-            (bin_data['Source'].isin(['DOB', 'DOB NOW'])) & 
-            (bin_data['Event'].str.contains('Application approved', na=False))
+        dob_approved_events = building_timeline_data[
+            (building_timeline_data['Source'].isin(['DOB', 'DOB NOW'])) &
+            (building_timeline_data['Event'].str.contains('Application approved', na=False))
         ]
         if len(dob_approved_events) > 0:
             dob_approved_events = dob_approved_events.sort_values('Date_Parsed')
@@ -81,17 +81,17 @@ def create_timeline_chart(timeline_csv, output_path=None):
         hpd_submitted = None
         hpd_completed = None
         
-        hpd_submitted_events = bin_data[
-            (bin_data['Source'] == 'HPD') & 
-            (bin_data['Event'] == 'HPD financing submitted')
+        hpd_submitted_events = building_timeline_data[
+            (building_timeline_data['Source'] == 'HPD') &
+            (building_timeline_data['Event'] == 'HPD financing submitted')
         ]
         if len(hpd_submitted_events) > 0:
             hpd_submitted_events = hpd_submitted_events.sort_values('Date_Parsed')
             hpd_submitted = hpd_submitted_events.iloc[0]['Date_Parsed']
         
-        hpd_completed_events = bin_data[
-            (bin_data['Source'] == 'HPD') & 
-            (bin_data['Event'] == 'HPD financing completed')
+        hpd_completed_events = building_timeline_data[
+            (building_timeline_data['Source'] == 'HPD') &
+            (building_timeline_data['Event'] == 'HPD financing completed')
         ]
         if len(hpd_completed_events) > 0:
             hpd_completed_events = hpd_completed_events.sort_values('Date_Parsed')
@@ -99,8 +99,8 @@ def create_timeline_chart(timeline_csv, output_path=None):
         
         # Only include BINs that have at least one complete timeline
         if (dob_submitted and dob_approved) or (hpd_submitted and hpd_completed):
-            bin_timelines.append({
-                'BIN': bin_val,
+            building_timelines.append({
+                'BIN': building_bin,
                 'Address': address,
                 'DOB_Submitted': dob_submitted,
                 'DOB_Approved': dob_approved,
@@ -108,22 +108,22 @@ def create_timeline_chart(timeline_csv, output_path=None):
                 'HPD_Completed': hpd_completed
             })
     
-    df_timelines = pd.DataFrame(bin_timelines)
-    print(f"BINs with timeline data: {len(df_timelines):,}\n")
+    timelines_dataframe = pd.DataFrame(building_timelines)
+    print(f"BINs with timeline data: {len(timelines_dataframe):,}\n")
     
     # Filter to BINs with complete data for both timelines
-    complete_timelines = df_timelines[
-        (df_timelines['DOB_Submitted'].notna()) & 
-        (df_timelines['DOB_Approved'].notna()) &
-        (df_timelines['HPD_Submitted'].notna()) & 
-        (df_timelines['HPD_Completed'].notna())
+    complete_timelines = timelines_dataframe[
+        (timelines_dataframe['DOB_Submitted'].notna()) &
+        (timelines_dataframe['DOB_Approved'].notna()) &
+        (timelines_dataframe['HPD_Submitted'].notna()) &
+        (timelines_dataframe['HPD_Completed'].notna())
     ].copy()
     
     print(f"BINs with complete DOB and HPD timelines: {len(complete_timelines):,}")
     
     if len(complete_timelines) == 0:
         print("No BINs with complete timelines found. Creating chart with available data...")
-        complete_timelines = df_timelines.copy()
+        complete_timelines = timelines_dataframe.copy()
     
     # Sort by first DOB application date (DOB_Submitted)
     complete_timelines = complete_timelines.sort_values('DOB_Submitted', na_position='last')
