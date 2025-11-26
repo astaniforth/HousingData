@@ -80,7 +80,7 @@ def create_timeline_chart(timeline_csv, output_path=None):
         # Find HPD financing timeline
         hpd_submitted = None
         hpd_completed = None
-        
+
         hpd_submitted_events = building_timeline_data[
             (building_timeline_data['Source'] == 'HPD') &
             (building_timeline_data['Event'] == 'HPD financing submitted')
@@ -88,7 +88,7 @@ def create_timeline_chart(timeline_csv, output_path=None):
         if len(hpd_submitted_events) > 0:
             hpd_submitted_events = hpd_submitted_events.sort_values('Date_Parsed')
             hpd_submitted = hpd_submitted_events.iloc[0]['Date_Parsed']
-        
+
         hpd_completed_events = building_timeline_data[
             (building_timeline_data['Source'] == 'HPD') &
             (building_timeline_data['Event'] == 'HPD financing completed')
@@ -96,16 +96,28 @@ def create_timeline_chart(timeline_csv, output_path=None):
         if len(hpd_completed_events) > 0:
             hpd_completed_events = hpd_completed_events.sort_values('Date_Parsed')
             hpd_completed = hpd_completed_events.iloc[0]['Date_Parsed']
-        
+
+        # Find CO issuance timeline
+        co_issued = None
+
+        co_issued_events = building_timeline_data[
+            (building_timeline_data['Source'].isin(['DOB_NOW_CO', 'DOB_CO'])) &
+            (building_timeline_data['Event'] == 'Certificate of Occupancy issued')
+        ]
+        if len(co_issued_events) > 0:
+            co_issued_events = co_issued_events.sort_values('Date_Parsed')
+            co_issued = co_issued_events.iloc[0]['Date_Parsed']
+
         # Only include BINs that have at least one complete timeline
-        if (dob_submitted and dob_approved) or (hpd_submitted and hpd_completed):
+        if (dob_submitted and dob_approved) or (hpd_submitted and hpd_completed) or co_issued:
             building_timelines.append({
                 'BIN': building_bin,
                 'Address': address,
                 'DOB_Submitted': dob_submitted,
                 'DOB_Approved': dob_approved,
                 'HPD_Submitted': hpd_submitted,
-                'HPD_Completed': hpd_completed
+                'HPD_Completed': hpd_completed,
+                'CO_Issued': co_issued
             })
     
     timelines_dataframe = pd.DataFrame(building_timelines)
@@ -163,31 +175,41 @@ def create_timeline_chart(timeline_csv, output_path=None):
             # Plot timeline segments - one line per BIN with overlapping segments
             dob_labeled = False
             hpd_labeled = False
-            
+            co_labeled = False
+
             for idx, (i, row) in enumerate(page_data.iterrows()):
                 y_pos = len(page_data) - idx - 1
-                
+
                 # DOB timeline segment (blue)
                 if pd.notna(row['DOB_Submitted']) and pd.notna(row['DOB_Approved']):
                     dob_start = row['DOB_Submitted']
                     dob_end = row['DOB_Approved']
                     dob_duration = (dob_end - dob_start).days
                     label = 'DOB Application Timeline' if not dob_labeled else ''
-                    ax.barh(y_pos, dob_duration, left=dob_start, height=0.6, 
+                    ax.barh(y_pos, dob_duration, left=dob_start, height=0.6,
                            color='#2E86AB', alpha=0.8, label=label, edgecolor='#1a5d7a', linewidth=0.5)
                     if not dob_labeled:
                         dob_labeled = True
-                
+
                 # HPD timeline segment (purple) - can overlap with DOB
                 if pd.notna(row['HPD_Submitted']) and pd.notna(row['HPD_Completed']):
                     hpd_start = row['HPD_Submitted']
                     hpd_end = row['HPD_Completed']
                     hpd_duration = (hpd_end - hpd_start).days
                     label = 'HPD Financing Timeline' if not hpd_labeled else ''
-                    ax.barh(y_pos, hpd_duration, left=hpd_start, height=0.6, 
+                    ax.barh(y_pos, hpd_duration, left=hpd_start, height=0.6,
                            color='#A23B72', alpha=0.8, label=label, edgecolor='#7a2b55', linewidth=0.5)
                     if not hpd_labeled:
                         hpd_labeled = True
+
+                # CO event marker (green) - single point in time
+                if pd.notna(row['CO_Issued']):
+                    co_date = row['CO_Issued']
+                    label = 'Certificate of Occupancy' if not co_labeled else ''
+                    ax.barh(y_pos, 30, left=co_date, height=0.4,  # 30-day width for visibility
+                           color='#4CAF50', alpha=0.9, label=label, edgecolor='#2E7D32', linewidth=1)
+                    if not co_labeled:
+                        co_labeled = True
             
             # Set y-axis labels
             labels = []
@@ -233,7 +255,10 @@ def create_timeline_chart(timeline_csv, output_path=None):
     print("=" * 70)
     print(f"BINs with DOB timeline: {len(complete_timelines[complete_timelines['DOB_Submitted'].notna()]):,}")
     print(f"BINs with HPD timeline: {len(complete_timelines[complete_timelines['HPD_Submitted'].notna()]):,}")
-    print(f"BINs with both timelines: {len(complete_timelines[(complete_timelines['DOB_Submitted'].notna()) & (complete_timelines['HPD_Submitted'].notna())]):,}")
+    print(f"BINs with CO issued: {len(complete_timelines[complete_timelines['CO_Issued'].notna()]):,}")
+    print(f"BINs with both DOB and HPD timelines: {len(complete_timelines[(complete_timelines['DOB_Submitted'].notna()) & (complete_timelines['HPD_Submitted'].notna())]):,}")
+    print(f"BINs with DOB and CO: {len(complete_timelines[(complete_timelines['DOB_Submitted'].notna()) & (complete_timelines['CO_Issued'].notna())]):,}")
+    print(f"BINs with HPD and CO: {len(complete_timelines[(complete_timelines['HPD_Submitted'].notna()) & (complete_timelines['CO_Issued'].notna())]):,}")
     
     return complete_timelines
 

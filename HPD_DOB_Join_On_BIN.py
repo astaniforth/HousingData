@@ -60,7 +60,7 @@ def process_dob_filings(df_filings, buildings_by_bin, source):
     """Process DOB filings and add events to buildings_by_bin."""
     if df_filings.empty:
         return
-    
+
     # Determine BIN column and date columns based on source
     if source == 'DOB':
         bin_col = 'bin__' if 'bin__' in df_filings.columns else 'bin_normalized' if 'bin_normalized' in df_filings.columns else 'bin'
@@ -78,26 +78,27 @@ def process_dob_filings(df_filings, buildings_by_bin, source):
         job_type_col = 'job_type'
         default_job_type = 'New Building'
         event_prefix = 'DOB NOW'
-    
+
     for idx, row in df_filings.iterrows():
         bin_str = normalize_bin(row.get(bin_col))
         if not bin_str:
             continue
-        
+
         # Initialize BIN entry if needed
         if bin_str not in buildings_by_bin:
             buildings_by_bin[bin_str] = {
                 'address': 'N/A',
                 'hpd_events': [],
-                'dob_events': []
+                'dob_events': [],
+                'co_events': []
             }
-        
+
         # Get dates and job info
         filing_date = get_date_from_columns(row, filing_cols)
         approval_date = get_date_from_columns(row, approval_cols)
         job_num = row.get(job_num_col, 'N/A')
         job_type = row.get(job_type_col, default_job_type)
-        
+
         # Add filing event
         if filing_date:
             buildings_by_bin[bin_str]['dob_events'].append({
@@ -106,7 +107,7 @@ def process_dob_filings(df_filings, buildings_by_bin, source):
                 'source': source,
                 'additional_info': f"Job: {job_num}"
             })
-        
+
         # Add approval event
         if approval_date:
             buildings_by_bin[bin_str]['dob_events'].append({
@@ -116,16 +117,65 @@ def process_dob_filings(df_filings, buildings_by_bin, source):
                 'additional_info': f"Job: {job_num}"
             })
 
-def create_timeline(building_csv, filings_csv, output_path=None):
-    """Create a timeline showing HPD financing dates and DOB filing/approval dates."""
-    
+def process_co_filings(df_co_filings, buildings_by_bin):
+    """Process CO filings and add events to buildings_by_bin."""
+    if df_co_filings.empty:
+        return
+
+    for idx, row in df_co_filings.iterrows():
+        bin_str = normalize_bin(row.get('bin_normalized'))
+        if not bin_str:
+            continue
+
+        # Initialize BIN entry if needed
+        if bin_str not in buildings_by_bin:
+            buildings_by_bin[bin_str] = {
+                'address': 'N/A',
+                'hpd_events': [],
+                'dob_events': [],
+                'co_events': []
+            }
+
+        # Get CO date based on source
+        co_date = None
+        source = row.get('source', 'Unknown')
+
+        if source == 'DOB_NOW_CO':
+            co_date = extract_date(row.get('c_of_o_issuance_date'))
+            job_num = row.get('job_filing_name', 'N/A')
+            co_status = row.get('c_of_o_status', 'N/A')
+        else:  # DOB_CO
+            co_date = extract_date(row.get('c_o_issue_date'))
+            job_num = row.get('job_number', 'N/A')
+            co_status = row.get('application_status_raw', 'N/A')
+
+        # Add CO event
+        if co_date:
+            buildings_by_bin[bin_str]['co_events'].append({
+                'date': co_date,
+                'event': 'Certificate of Occupancy issued',
+                'source': source,
+                'additional_info': f"Job: {job_num}, Status: {co_status}"
+            })
+
+def create_timeline(building_csv, filings_csv, co_filings_csv=None, output_path=None):
+    """Create a timeline showing HPD financing dates, DOB filing/approval dates, and CO dates."""
+
     print(f"Reading building data (HPD) from: {building_csv}...")
     df_buildings = pd.read_csv(building_csv)
     print(f"Total buildings: {len(df_buildings):,}\n")
-    
+
     print(f"Reading DOB filings from: {filings_csv}...")
     df_filings = pd.read_csv(filings_csv)
     print(f"Total filings: {len(df_filings):,}\n")
+
+    if co_filings_csv:
+        print(f"Reading CO filings from: {co_filings_csv}...")
+        df_co_filings = pd.read_csv(co_filings_csv)
+        print(f"Total CO filings: {len(df_co_filings):,}\n")
+    else:
+        df_co_filings = pd.DataFrame()
+        print("No CO filings provided\n")
     
     # Get address columns
     address_cols = [col for col in ['Number', 'Street', 'house_no', 'street_name'] 
@@ -144,7 +194,8 @@ def create_timeline(building_csv, filings_csv, output_path=None):
             buildings_by_bin[bin_str] = {
                 'address': extract_address(row, address_cols),
                 'hpd_events': [],
-                'dob_events': []
+                'dob_events': [],
+                'co_events': []
             }
         
         # Add HPD financing events
@@ -186,11 +237,14 @@ def create_timeline(building_csv, filings_csv, output_path=None):
     # Process DOB filings
     process_dob_filings(dob_filings, buildings_by_bin, 'DOB')
     process_dob_filings(dob_now_filings, buildings_by_bin, 'DOB NOW')
-    
+
+    # Process CO filings
+    process_co_filings(df_co_filings, buildings_by_bin)
+
     # Create timeline dataframe
     timeline_rows = []
     for bin_str, data in buildings_by_bin.items():
-        for event in data['hpd_events'] + data['dob_events']:
+        for event in data['hpd_events'] + data['dob_events'] + data['co_events']:
             timeline_rows.append({
                 'BIN': bin_str,
                 'Address': data['address'],
@@ -208,7 +262,8 @@ def create_timeline(building_csv, filings_csv, output_path=None):
     print(f"\nTotal timeline entries: {len(df_timeline):,}")
     print(f"  HPD entries: {len(df_timeline[df_timeline['Source'] == 'HPD']):,}")
     print(f"  DOB entries: {len(df_timeline[df_timeline['Source'] == 'DOB']):,}")
-    print(f"  DOB NOW entries: {len(df_timeline[df_timeline['Source'] == 'DOB NOW']):,}\n")
+    print(f"  DOB NOW entries: {len(df_timeline[df_timeline['Source'] == 'DOB NOW']):,}")
+    print(f"  CO entries: {len(df_timeline[df_timeline['Source'].isin(['DOB_NOW_CO', 'DOB_CO'])]):,}\n")
     
     print("Sample timeline (first 30 entries):")
     print(df_timeline_output.head(30).to_string(index=False))
@@ -224,14 +279,15 @@ def create_timeline(building_csv, filings_csv, output_path=None):
 if __name__ == "__main__":
     building_csv = sys.argv[1] if len(sys.argv) > 1 else 'Affordable_Housing_Production_by_Building.csv'
     filings_csv = sys.argv[2] if len(sys.argv) > 2 else 'new_construction_bins_dob_filings.csv'
-    
+    co_filings_csv = sys.argv[3] if len(sys.argv) > 3 else None
+
     if not os.path.exists(building_csv):
         print(f"Error: Building CSV '{building_csv}' not found.")
-        print("Usage: python HPD_DOB_Join_On_BIN.py <building_csv> [filings_csv]")
+        print("Usage: python HPD_DOB_Join_On_BIN.py <building_csv> [filings_csv] [co_filings_csv]")
         sys.exit(1)
-    
+
     if not os.path.exists(filings_csv):
         print(f"Error: Filings CSV '{filings_csv}' not found.")
         sys.exit(1)
-    
-    create_timeline(building_csv, filings_csv)
+
+    create_timeline(building_csv, filings_csv, co_filings_csv)
