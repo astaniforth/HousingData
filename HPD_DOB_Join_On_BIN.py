@@ -136,26 +136,42 @@ def process_co_filings(df_co_filings, buildings_by_bin):
                 'co_events': []
             }
 
-        # Get CO date based on source
+        # Get CO date and type based on source
         co_date = None
         source = row.get('source', 'Unknown')
+        co_type = 'Unknown'
 
         if source == 'DOB_NOW_CO':
             co_date = extract_date(row.get('c_of_o_issuance_date'))
             job_num = row.get('job_filing_name', 'N/A')
             co_status = row.get('c_of_o_status', 'N/A')
+            filing_type = row.get('c_of_o_filing_type', 'Unknown')
+            # Determine if it's first/initial or final
+            if filing_type and 'Final' in str(filing_type):
+                co_type = 'Final'
+            elif filing_type and ('Initial' in str(filing_type) or 'Renewal' in str(filing_type)):
+                co_type = 'Initial'
+            else:
+                co_type = 'Other'
         else:  # DOB_CO
             co_date = extract_date(row.get('c_o_issue_date'))
             job_num = row.get('job_number', 'N/A')
             co_status = row.get('application_status_raw', 'N/A')
+            issue_type = row.get('issue_type', 'Unknown')
+            # Determine if it's first/initial or final
+            if issue_type and str(issue_type).strip() == 'Final':
+                co_type = 'Final'
+            else:
+                co_type = 'Initial'
 
-        # Add CO event
+        # Add CO event with type
         if co_date:
+            event_name = f'Certificate of Occupancy issued ({co_type})'
             buildings_by_bin[bin_str]['co_events'].append({
                 'date': co_date,
-                'event': 'Certificate of Occupancy issued',
+                'event': event_name,
                 'source': source,
-                'additional_info': f"Job: {job_num}, Status: {co_status}"
+                'additional_info': f"Job: {job_num}, Status: {co_status}, Type: {co_type}"
             })
 
 def create_timeline(building_csv, filings_csv, co_filings_csv=None, output_path=None):

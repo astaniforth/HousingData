@@ -97,19 +97,30 @@ def create_timeline_chart(timeline_csv, output_path=None):
             hpd_completed_events = hpd_completed_events.sort_values('Date_Parsed')
             hpd_completed = hpd_completed_events.iloc[0]['Date_Parsed']
 
-        # Find CO issuance timeline
-        co_issued = None
+        # Find CO issuance timeline - both initial and final
+        co_initial = None
+        co_final = None
 
-        co_issued_events = building_timeline_data[
+        # Find initial/first CO
+        co_initial_events = building_timeline_data[
             (building_timeline_data['Source'].isin(['DOB_NOW_CO', 'DOB_CO'])) &
-            (building_timeline_data['Event'] == 'Certificate of Occupancy issued')
+            (building_timeline_data['Event'].str.contains('Certificate of Occupancy issued \\(Initial\\)', na=False))
         ]
-        if len(co_issued_events) > 0:
-            co_issued_events = co_issued_events.sort_values('Date_Parsed')
-            co_issued = co_issued_events.iloc[0]['Date_Parsed']
+        if len(co_initial_events) > 0:
+            co_initial_events = co_initial_events.sort_values('Date_Parsed')
+            co_initial = co_initial_events.iloc[0]['Date_Parsed']
+
+        # Find final CO
+        co_final_events = building_timeline_data[
+            (building_timeline_data['Source'].isin(['DOB_NOW_CO', 'DOB_CO'])) &
+            (building_timeline_data['Event'].str.contains('Certificate of Occupancy issued \\(Final\\)', na=False))
+        ]
+        if len(co_final_events) > 0:
+            co_final_events = co_final_events.sort_values('Date_Parsed')
+            co_final = co_final_events.iloc[0]['Date_Parsed']
 
         # Only include BINs that have at least one complete timeline
-        if (dob_submitted and dob_approved) or (hpd_submitted and hpd_completed) or co_issued:
+        if (dob_submitted and dob_approved) or (hpd_submitted and hpd_completed) or co_initial or co_final:
             building_timelines.append({
                 'BIN': building_bin,
                 'Address': address,
@@ -117,7 +128,8 @@ def create_timeline_chart(timeline_csv, output_path=None):
                 'DOB_Approved': dob_approved,
                 'HPD_Submitted': hpd_submitted,
                 'HPD_Completed': hpd_completed,
-                'CO_Issued': co_issued
+                'CO_Initial': co_initial,
+                'CO_Final': co_final
             })
     
     timelines_dataframe = pd.DataFrame(building_timelines)
@@ -175,7 +187,8 @@ def create_timeline_chart(timeline_csv, output_path=None):
             # Plot timeline segments - one line per BIN with overlapping segments
             dob_labeled = False
             hpd_labeled = False
-            co_labeled = False
+            co_initial_labeled = False
+            co_final_labeled = False
 
             for idx, (i, row) in enumerate(page_data.iterrows()):
                 y_pos = len(page_data) - idx - 1
@@ -202,14 +215,24 @@ def create_timeline_chart(timeline_csv, output_path=None):
                     if not hpd_labeled:
                         hpd_labeled = True
 
-                # CO event marker (green) - single point in time
-                if pd.notna(row['CO_Issued']):
-                    co_date = row['CO_Issued']
-                    label = 'Certificate of Occupancy' if not co_labeled else ''
-                    ax.barh(y_pos, 30, left=co_date, height=0.4,  # 30-day width for visibility
-                           color='#4CAF50', alpha=0.9, label=label, edgecolor='#2E7D32', linewidth=1)
-                    if not co_labeled:
-                        co_labeled = True
+                # CO event markers
+                # Initial CO (light green)
+                if pd.notna(row['CO_Initial']):
+                    co_date = row['CO_Initial']
+                    label = 'Initial Certificate of Occupancy' if not co_initial_labeled else ''
+                    ax.barh(y_pos + 0.15, 30, left=co_date, height=0.25,  # 30-day width for visibility
+                           color='#81C784', alpha=0.9, label=label, edgecolor='#4CAF50', linewidth=1)
+                    if not co_initial_labeled:
+                        co_initial_labeled = True
+
+                # Final CO (dark green)
+                if pd.notna(row['CO_Final']):
+                    co_date = row['CO_Final']
+                    label = 'Final Certificate of Occupancy' if not co_final_labeled else ''
+                    ax.barh(y_pos - 0.15, 30, left=co_date, height=0.25,  # 30-day width for visibility
+                           color='#388E3C', alpha=0.9, label=label, edgecolor='#1B5E20', linewidth=1)
+                    if not co_final_labeled:
+                        co_final_labeled = True
             
             # Set y-axis labels
             labels = []
@@ -255,10 +278,12 @@ def create_timeline_chart(timeline_csv, output_path=None):
     print("=" * 70)
     print(f"BINs with DOB timeline: {len(complete_timelines[complete_timelines['DOB_Submitted'].notna()]):,}")
     print(f"BINs with HPD timeline: {len(complete_timelines[complete_timelines['HPD_Submitted'].notna()]):,}")
-    print(f"BINs with CO issued: {len(complete_timelines[complete_timelines['CO_Issued'].notna()]):,}")
+    print(f"BINs with Initial CO: {len(complete_timelines[complete_timelines['CO_Initial'].notna()]):,}")
+    print(f"BINs with Final CO: {len(complete_timelines[complete_timelines['CO_Final'].notna()]):,}")
+    print(f"BINs with any CO: {len(complete_timelines[(complete_timelines['CO_Initial'].notna()) | (complete_timelines['CO_Final'].notna())]):,}")
     print(f"BINs with both DOB and HPD timelines: {len(complete_timelines[(complete_timelines['DOB_Submitted'].notna()) & (complete_timelines['HPD_Submitted'].notna())]):,}")
-    print(f"BINs with DOB and CO: {len(complete_timelines[(complete_timelines['DOB_Submitted'].notna()) & (complete_timelines['CO_Issued'].notna())]):,}")
-    print(f"BINs with HPD and CO: {len(complete_timelines[(complete_timelines['HPD_Submitted'].notna()) & (complete_timelines['CO_Issued'].notna())]):,}")
+    print(f"BINs with DOB and any CO: {len(complete_timelines[(complete_timelines['DOB_Submitted'].notna()) & ((complete_timelines['CO_Initial'].notna()) | (complete_timelines['CO_Final'].notna()))]):,}")
+    print(f"BINs with HPD and any CO: {len(complete_timelines[(complete_timelines['HPD_Submitted'].notna()) & ((complete_timelines['CO_Initial'].notna()) | (complete_timelines['CO_Final'].notna()))]):,}")
     
     return complete_timelines
 

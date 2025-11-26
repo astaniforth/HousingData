@@ -91,5 +91,6 @@ pip install pandas matplotlib requests beautifulsoup4
 - **DOB NB Application approved** - First DOB approval for new building
 - **DOB NOW New Building Application submitted** - First DOB NOW filing
 - **DOB NOW New Building Application approved** - First DOB NOW approval
-- **Certificate of Occupancy issued** - First CO issuance date from DOB/DOB NOW
+- **Certificate of Occupancy issued (Initial)** - Initial/Temporary CO issuance date
+- **Certificate of Occupancy issued (Final)** - Final CO issuance date
 
