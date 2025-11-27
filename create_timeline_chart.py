@@ -34,7 +34,7 @@ def parse_date(date_str):
             continue
     return None
 
-def create_timeline_chart(timeline_csv, output_path=None):
+def create_timeline_chart(timeline_csv, output_path=None, global_min_date=None, global_max_date=None):
     """
     Create a timeline chart showing DOB application and HPD financing timelines for each BIN.
     """
@@ -172,22 +172,28 @@ def create_timeline_chart(timeline_csv, output_path=None):
     print(f"Creating {num_pages} page(s) with up to {bins_per_page} BINs per page...")
 
     # Determine consistent date range across all pages
-    all_dates = []
-    date_columns = ['DOB_Submitted', 'DOB_Approved', 'HPD_Submitted', 'HPD_Completed', 'CO_Initial', 'CO_Final']
-    for col in date_columns:
-        if col in complete_timelines.columns:
-            dates = complete_timelines[col].dropna()
-            all_dates.extend(dates)
-
-    if all_dates:
-        min_date = min(all_dates) - pd.Timedelta(days=180)  # 6 months buffer
-        max_date = max(all_dates) + pd.Timedelta(days=180)  # 6 months buffer
+    if global_min_date is not None and global_max_date is not None:
+        min_date = global_min_date
+        max_date = global_max_date
+        print(f"Using global date range: {min_date.date()} to {max_date.date()}")
     else:
-        # Fallback if no dates found
-        min_date = pd.Timestamp('2010-01-01')
-        max_date = pd.Timestamp('2030-01-01')
+        # Fallback: calculate from current dataset
+        all_dates = []
+        date_columns = ['DOB_Submitted', 'DOB_Approved', 'HPD_Submitted', 'HPD_Completed', 'CO_Initial', 'CO_Final']
+        for col in date_columns:
+            if col in complete_timelines.columns:
+                dates = complete_timelines[col].dropna()
+                all_dates.extend(dates)
 
-    print(f"Consistent date range: {min_date.date()} to {max_date.date()}")
+        if all_dates:
+            min_date = min(all_dates) - pd.Timedelta(days=180)  # 6 months buffer
+            max_date = max(all_dates) + pd.Timedelta(days=180)  # 6 months buffer
+        else:
+            # Fallback if no dates found
+            min_date = pd.Timestamp('2010-01-01')
+            max_date = pd.Timestamp('2030-01-01')
+
+        print(f"Dataset date range: {min_date.date()} to {max_date.date()}")
 
     # Create PDF
     with PdfPages(output_path) as pdf:
@@ -331,12 +337,48 @@ def create_financing_charts():
     hpd_timeline = 'Affordable_Housing_Production_by_Building_with_financing_hpd_financed_timeline.csv'
     private_timeline = 'Affordable_Housing_Production_by_Building_with_financing_privately_financed_timeline.csv'
 
+    # Calculate global date range across both datasets
+    global_min_date = None
+    global_max_date = pd.Timestamp.today()  # End date is today
+
+    # Check HPD financed data
+    if os.path.exists(hpd_timeline):
+        hpd_data = pd.read_csv(hpd_timeline)
+        date_columns = ['DOB_Submitted', 'DOB_Approved', 'HPD_Submitted', 'HPD_Completed', 'CO_Initial', 'CO_Final']
+        for col in date_columns:
+            if col in hpd_data.columns:
+                dates = pd.to_datetime(hpd_data[col], errors='coerce').dropna()
+                if len(dates) > 0:
+                    if global_min_date is None or dates.min() < global_min_date:
+                        global_min_date = dates.min()
+
+    # Check privately financed data
+    if os.path.exists(private_timeline):
+        private_data = pd.read_csv(private_timeline)
+        date_columns = ['DOB_Submitted', 'DOB_Approved', 'HPD_Submitted', 'HPD_Completed', 'CO_Initial', 'CO_Final']
+        for col in date_columns:
+            if col in private_data.columns:
+                dates = pd.to_datetime(private_data[col], errors='coerce').dropna()
+                if len(dates) > 0:
+                    if global_min_date is None or dates.min() < global_min_date:
+                        global_min_date = dates.min()
+
+    # Set global date range
+    if global_min_date is None:
+        global_min_date = pd.Timestamp('2010-01-01')  # Fallback
+
+    # Add buffer
+    global_min_date = global_min_date - pd.Timedelta(days=180)  # 6 months buffer
+    global_max_date = global_max_date + pd.Timedelta(days=30)   # 1 month buffer
+
+    print(f"Global date range for all charts: {global_min_date.date()} to {global_max_date.date()}")
+
     # Create HPD financed chart
     if os.path.exists(hpd_timeline):
         print("=" * 80)
         print("CREATING HPD FINANCED PROJECTS CHART")
         print("=" * 80)
-        create_timeline_chart(hpd_timeline)
+        create_timeline_chart(hpd_timeline, global_min_date=global_min_date, global_max_date=global_max_date)
     else:
         print(f"HPD financed timeline not found: {hpd_timeline}")
 
@@ -345,7 +387,7 @@ def create_financing_charts():
         print("\n" + "=" * 80)
         print("CREATING PRIVATELY FINANCED PROJECTS CHART")
         print("=" * 80)
-        create_timeline_chart(private_timeline)
+        create_timeline_chart(private_timeline, global_min_date=global_min_date, global_max_date=global_max_date)
     else:
         print(f"Privately financed timeline not found: {private_timeline}")
 
