@@ -681,8 +681,8 @@ class DataQualityTracker:
         if base_filename is None:
             base_filename = "data_quality_report"
 
-        # Create reports directory if it doesn't exist
-        reports_dir = "reports"
+        # Create dataquality_reports directory if it doesn't exist
+        reports_dir = "dataquality_reports"
         if not os.path.exists(reports_dir):
             os.makedirs(reports_dir)
 
