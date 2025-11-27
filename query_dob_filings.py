@@ -9,8 +9,57 @@ from urllib.parse import quote
 DOB_JOB_APPLICATIONS_URL = "https://data.cityofnewyork.us/resource/ic3t-wcy2.json"
 DOB_NOW_JOB_APPLICATIONS_URL = "https://data.cityofnewyork.us/resource/w9ak-ipjd.json"
 
-def decompose_bbl(bbl):
-    """Decompose BBL into borough, block, lot components"""
+def validate_bbl_borough_consistency(bbl, borough_name):
+    """
+    Validate that BBL borough code matches the provided borough name.
+
+    Args:
+        bbl: BBL value (can be string or numeric)
+        borough_name: Borough name from the data
+
+    Returns:
+        tuple: (is_valid, expected_borough, actual_borough_code)
+    """
+    if pd.isna(bbl) or pd.isna(borough_name):
+        return False, None, None
+
+    try:
+        bbl_str = str(int(float(bbl)))
+        if len(bbl_str) != 10:
+            return False, None, None
+
+        borough_code = bbl_str[0]
+
+        # Borough mapping
+        borough_mapping = {
+            '1': 'MANHATTAN',
+            '2': 'BROOKLYN',
+            '3': 'QUEENS',
+            '4': 'BRONX',
+            '5': 'STATEN ISLAND'
+        }
+
+        expected_borough = borough_mapping.get(borough_code)
+        actual_borough = str(borough_name).upper().strip()
+
+        is_valid = expected_borough == actual_borough
+        return is_valid, expected_borough, actual_borough
+
+    except (ValueError, KeyError):
+        return False, None, None
+
+def decompose_bbl(bbl, borough_name=None):
+    """
+    Decompose BBL into borough, block, lot components for DOB API searching.
+    Optionally validates borough consistency.
+
+    Args:
+        bbl: BBL value to decompose
+        borough_name: Optional borough name for validation
+
+    Returns:
+        tuple: (borough_name, block_int, lot_int) or (borough_name, block_int, lot_int, is_valid) if validation requested
+    """
     if pd.isna(bbl):
         return None, None, None
 
@@ -20,8 +69,8 @@ def decompose_bbl(bbl):
         return None, None, None
 
     borough_code = bbl_str[0]
-    block = int(bbl_str[1:6])  # Convert to integer
-    lot = int(bbl_str[6:10])   # Convert to integer
+    block_int = int(bbl_str[1:6])  # Convert to integer (API uses 3368, not 03368)
+    lot_int = int(bbl_str[6:10])   # Convert to integer (API uses 7, not 00007)
 
     # Convert borough code to name (DOB APIs use names, not codes)
     borough_mapping = {
@@ -32,9 +81,14 @@ def decompose_bbl(bbl):
         '5': 'STATEN ISLAND'
     }
 
-    borough_name = borough_mapping.get(borough_code, borough_code)
+    borough_name_from_bbl = borough_mapping.get(borough_code, borough_code)
 
-    return borough_name, block, lot
+    # Validate consistency if borough_name provided
+    if borough_name is not None:
+        is_valid, expected, actual = validate_bbl_borough_consistency(bbl, borough_name)
+        return borough_name_from_bbl, block_int, lot_int, is_valid
+    else:
+        return borough_name_from_bbl, block_int, lot_int
 
 def query_dob_api(url, search_list, job_type="NB", search_type="bin", limit=50000):
     """
@@ -57,8 +111,12 @@ def query_dob_api(url, search_list, job_type="NB", search_type="bin", limit=5000
 
     all_results = []
 
-    # Query in batches to avoid URL length limits
-    batch_size = 50
+    # Query in smaller batches for BBL searches to avoid API limits
+    if search_type == "bbl":
+        batch_size = 5  # Much smaller batches for BBL searches
+    else:
+        batch_size = 50  # Normal batch size for BIN searches
+
     for i in range(0, len(search_list), batch_size):
         batch = search_list[i:i+batch_size]
 
@@ -67,26 +125,76 @@ def query_dob_api(url, search_list, job_type="NB", search_type="bin", limit=5000
             bin_column = "bin__" if "ic3t-wcy2" in url else "bin"  # DOB vs DOB NOW
             bin_filter = " OR ".join([f"{bin_column}='{bin_num}'" for bin_num in batch])
             query = f"job_type='{job_type}' AND ({bin_filter})"
-        elif search_type == "bbl":
+        if search_type == "bbl":
             # BBL-based search using borough, block, lot
-            bbl_filters = []
-            for bbl_tuple in batch:
-                if bbl_tuple and len(bbl_tuple) == 3:
-                    borough, block, lot = bbl_tuple
-                    bbl_filters.append(f"borough='{borough}' AND block={block} AND lot={lot}")
-                else:
-                    continue
-            if bbl_filters:
-                query = f"job_type='{job_type}' AND ({' OR '.join(bbl_filters)})"
-            else:
-                continue
-        else:
-            continue
+            # Query each BBL individually to avoid API complexity limits
+            all_batch_results = []
 
-        params = {
-            '$where': query,
-            '$limit': limit
-        }
+            for bbl_tuple in batch:
+                if not bbl_tuple or len(bbl_tuple) != 3:
+                    continue
+
+                borough, block, lot = bbl_tuple
+
+                # API-specific job type filtering
+                if "ic3t-wcy2" in url:
+                    # DOB Job Applications API uses "NB"
+                    query = f"job_type='NB' AND borough='{borough}' AND block={block} AND lot={lot}"
+                else:
+                    # DOB NOW Job Applications API uses "New Building"
+                    query = f"job_type='New Building' AND borough='{borough}' AND block={block} AND lot={lot}"
+
+                # Query this single BBL
+                params = {
+                    '$where': query,
+                    '$limit': limit
+                }
+
+                try:
+                    print(f"  Querying BBL {borough}/{block}/{lot}...")
+                    response = requests.get(url, params=params, timeout=30)
+                    response.raise_for_status()
+                    single_data = response.json()
+                    if single_data:
+                        all_batch_results.extend(single_data)
+                        print(f"    Found {len(single_data)} records for BBL {borough}/{block}/{lot}")
+                    else:
+                        print(f"    No records found for BBL {borough}/{block}/{lot}")
+                    # Rate limiting
+                    time.sleep(0.2)
+                except Exception as e:
+                    print(f"    Error querying BBL {borough}/{block}/{lot}: {str(e)[:50]}")
+                    continue
+
+            # Use the accumulated results for this batch
+            all_results.extend(all_batch_results)
+        else:
+            # Standard BIN/batch query processing
+            params = {
+                '$where': query,
+                '$limit': limit
+            }
+
+            try:
+                print(f"  Querying batch {i//batch_size + 1} (Items {i+1}-{min(i+batch_size, len(search_list))})...")
+                response = requests.get(url, params=params, timeout=30)
+                response.raise_for_status()
+
+                data = response.json()
+                if data:
+                    all_results.extend(data)
+                    print(f"    Found {len(data)} records")
+                else:
+                    print(f"    No records found")
+
+                # Rate limiting
+                time.sleep(0.5)
+
+            except Exception as e:
+                print(f"    Error querying batch: {str(e)}")
+                if hasattr(e, 'response') and e.response is not None:
+                    print(f"    Response: {e.response.text[:200]}")
+                continue
 
         try:
             print(f"  Querying batch {i//batch_size + 1} (Items {i+1}-{min(i+batch_size, len(search_list))})...")
@@ -128,66 +236,101 @@ def query_dob_filings(search_file_path, output_path=None, use_bbl_fallback=True)
     """
 
     # Try to read as CSV first (with BIN/BBL columns), fall back to text file
+    search_df = None
     try:
         search_df = pd.read_csv(search_file_path)
         print(f"Reading search data from CSV: {search_file_path}")
-
-        # Extract BINs and BBLs
-        bins = []
-        bbl_tuples = []
-
-        if 'BIN_normalized' in search_df.columns:
-            bins = [str(b).replace('.0', '') for b in search_df['BIN_normalized'].dropna() if str(b) != 'nan']
-        elif 'BIN' in search_df.columns:
-            bins = [str(b).replace('.0', '') for b in search_df['BIN'].dropna() if str(b) != 'nan']
-
-        if use_bbl_fallback and 'BBL' in search_df.columns:
-            bbl_values = search_df['BBL'].dropna()
-            for bbl in bbl_values:
-                bbl_tuple = decompose_bbl(bbl)
-                if bbl_tuple[0] is not None:  # Valid BBL
-                    bbl_tuples.append(bbl_tuple)
-
-        print(f"Found {len(bins)} BINs and {len(bbl_tuples)} BBLs to search")
-
     except:
         # Fall back to reading as text file with BINs
         print(f"Reading BINs from text file: {search_file_path}")
         with open(search_file_path, 'r') as f:
-            bins = [line.strip() for line in f if line.strip() and not line.startswith('#')]
+            bins_from_file = [line.strip() for line in f if line.strip() and not line.startswith('#')]
+        # Create a simple dataframe for processing
+        search_df = pd.DataFrame({'BIN': bins_from_file})
 
-        # Convert to integers and remove duplicates
-        bins = sorted(list(set([bin_str for bin_str in bins if bin_str and bin_str != 'nan'])))
-        bbl_tuples = []
-        print(f"Found {len(bins)} unique BINs\n")
+    # Extract all BINs for initial search
+    bins = []
+    if 'BIN_normalized' in search_df.columns:
+        bins = [str(b).replace('.0', '') for b in search_df['BIN_normalized'].dropna() if str(b) != 'nan']
+    elif 'BIN' in search_df.columns:
+        bins = [str(b).replace('.0', '') for b in search_df['BIN'].dropna() if str(b) != 'nan']
 
-    # Query DOB Job Application Filings API
+    print(f"Found {len(bins)} BINs to search initially")
+
+    # Step 1: Query by BIN for all properties
     print("=" * 70)
-    print("QUERYING DOB JOB APPLICATION FILINGS")
+    print("STEP 1: QUERYING DOB APIs BY BIN")
     print("=" * 70)
-    dob_filings = query_dob_api(DOB_JOB_APPLICATIONS_URL, bins, job_type="NB", search_type="bin")
+    dob_filings_bin = query_dob_api(DOB_JOB_APPLICATIONS_URL, bins, job_type="NB", search_type="bin")
+    dob_now_filings_bin = query_dob_api(DOB_NOW_JOB_APPLICATIONS_URL, bins, job_type="New Building", search_type="bin")
 
-    # Query DOB NOW Job Applications API
-    print("\n" + "=" * 70)
-    print("QUERYING DOB NOW JOB APPLICATIONS")
-    print("=" * 70)
-    dob_now_filings = query_dob_api(DOB_NOW_JOB_APPLICATIONS_URL, bins, job_type="New Building", search_type="bin")
+    # Identify which BINs didn't get matches
+    matched_bins = set()
+    if not dob_filings_bin.empty and 'bin__' in dob_filings_bin.columns:
+        matched_bins.update(dob_filings_bin['bin__'].dropna().astype(str).unique())
+    if not dob_now_filings_bin.empty and 'bin' in dob_now_filings_bin.columns:
+        matched_bins.update(dob_now_filings_bin['bin'].dropna().astype(str).unique())
 
-    # If we have BBLs and want fallback, search by BBL as well
-    if use_bbl_fallback and bbl_tuples:
-        print("\n" + "=" * 70)
-        print("QUERYING DOB APIs BY BBL (FALLBACK)")
-        print("=" * 70)
-        print(f"Searching {len(bbl_tuples)} BBLs that don't have BIN matches...")
+    unmatched_bins = [b for b in bins if b not in matched_bins]
+    print(f"BIN search found matches for {len(matched_bins)} BINs")
+    print(f"{len(unmatched_bins)} BINs have no matches and will use BBL fallback")
 
-        dob_filings_bbl = query_dob_api(DOB_JOB_APPLICATIONS_URL, bbl_tuples, job_type="NB", search_type="bbl")
-        dob_now_filings_bbl = query_dob_api(DOB_NOW_JOB_APPLICATIONS_URL, bbl_tuples, job_type="New Building", search_type="bbl")
+    # Step 2: For unmatched BINs, try BBL search if we have BBL data
+    dob_filings_bbl = pd.DataFrame()
+    dob_now_filings_bbl = pd.DataFrame()
 
-        # Combine BBL results with BIN results
-        if not dob_filings_bbl.empty:
-            dob_filings = pd.concat([dob_filings, dob_filings_bbl], ignore_index=True)
-        if not dob_now_filings_bbl.empty:
-            dob_now_filings = pd.concat([dob_now_filings, dob_now_filings_bbl], ignore_index=True)
+    if use_bbl_fallback and len(unmatched_bins) > 0 and search_df is not None and 'BBL' in search_df.columns:
+            print("\n" + "=" * 70)
+            print("STEP 2: QUERYING DOB APIs BY BBL (FALLBACK)")
+            print("=" * 70)
+
+            # Get BBLs for unmatched BINs
+            bbl_tuples = []
+            validation_warnings = []
+
+            for bin_val in unmatched_bins:
+                # Find the corresponding row in search_df
+                if 'BIN_normalized' in search_df.columns:
+                    mask = search_df['BIN_normalized'].astype(str).str.replace('.0', '') == bin_val
+                elif 'BIN' in search_df.columns:
+                    mask = search_df['BIN'].astype(str).str.replace('.0', '') == bin_val
+                else:
+                    continue
+
+                matching_rows = search_df[mask]
+                if not matching_rows.empty:
+                    row = matching_rows.iloc[0]
+                    bbl_val = row['BBL']
+                    borough_name = row.get('Borough')  # Get borough from data
+
+                    # Validate BBL-borough consistency
+                    bbl_result = decompose_bbl(bbl_val, borough_name)
+
+                    if len(bbl_result) == 4:  # Validation included
+                        borough_from_bbl, block_int, lot_int, is_valid = bbl_result
+                        if not is_valid:
+                            warning_msg = f"WARNING: BIN {bin_val} - BBL {bbl_val} suggests {borough_from_bbl} but data shows {borough_name}"
+                            validation_warnings.append(warning_msg)
+                            print(f"  ⚠️  {warning_msg}")
+                        bbl_tuple = (borough_from_bbl, block_int, lot_int)
+                    else:  # No validation
+                        bbl_tuple = bbl_result
+
+                    if bbl_tuple[0] is not None:  # Valid BBL
+                        bbl_tuples.append(bbl_tuple)
+
+            if validation_warnings:
+                print(f"\n⚠️  Found {len(validation_warnings)} BBL-borough inconsistencies!")
+                print("These may indicate data quality issues in the HPD dataset.")
+
+            if bbl_tuples:
+                print(f"Searching {len(bbl_tuples)} BBLs for unmatched BINs...")
+                dob_filings_bbl = query_dob_api(DOB_JOB_APPLICATIONS_URL, bbl_tuples, job_type="NB", search_type="bbl")
+                dob_now_filings_bbl = query_dob_api(DOB_NOW_JOB_APPLICATIONS_URL, bbl_tuples, job_type="New Building", search_type="bbl")
+
+    # Combine all results
+    dob_filings = pd.concat([dob_filings_bin, dob_filings_bbl], ignore_index=True) if not dob_filings_bbl.empty else dob_filings_bin
+    dob_now_filings = pd.concat([dob_now_filings_bin, dob_now_filings_bbl], ignore_index=True) if not dob_now_filings_bbl.empty else dob_now_filings_bin
     
     # Combine results
     print("\n" + "=" * 70)
