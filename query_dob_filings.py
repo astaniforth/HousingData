@@ -409,14 +409,20 @@ def query_dob_filings(search_file_path, output_path=None, use_bbl_fallback=True)
 
     # Save results
     if output_path is None:
-        output_path = bin_file_path.replace('.txt', '_dob_filings.csv')
+        from pathlib import Path
+        # Save to data/external/ folder
+        external_dir = Path('data/external')
+        external_dir.mkdir(parents=True, exist_ok=True)
+        base_name = Path(bin_file_path).stem
+        output_path = external_dir / f"{base_name}_dob_filings.csv"
 
     combined.to_csv(output_path, index=False)
     print(f"\nResults saved to: {output_path}")
 
     # Also create a summary by BIN
     if 'bin_normalized' in combined.columns:
-        summary_path = bin_file_path.replace('.txt', '_dob_filings_summary.csv')
+        base_name = Path(bin_file_path).stem
+        summary_path = external_dir / f"{base_name}_dob_filings_summary.csv"
         summary = combined.groupby('bin_normalized').size().reset_index()
         summary.columns = ['BIN', 'Number_of_Filings']
         summary = summary.sort_values('Number_of_Filings', ascending=False)

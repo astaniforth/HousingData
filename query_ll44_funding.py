@@ -114,7 +114,12 @@ def add_financing_type(hpd_csv_path, ll44_funding_df, output_path=None):
         print(f"  {financing_type}: {count:,} projects")
 
     if output_path is None:
-        output_path = hpd_csv_path.replace('.csv', '_with_financing.csv')
+        from pathlib import Path
+        # Save to data/processed/ folder
+        processed_dir = Path('data/processed')
+        processed_dir.mkdir(parents=True, exist_ok=True)
+        base_name = Path(hpd_csv_path).stem
+        output_path = processed_dir / f"{base_name}_with_financing.csv"
 
     df_hpd.to_csv(output_path, index=False)
     print(f"\nUpdated HPD data saved to: {output_path}")

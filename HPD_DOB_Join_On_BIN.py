@@ -321,7 +321,16 @@ def create_timeline(building_csv, filings_csv, co_filings_csv=None, output_path=
     print(df_timeline_output.head(30).to_string(index=False))
     
     if output_path is None:
-        output_path = building_csv.replace('.csv', '_timeline.csv')
+        from pathlib import Path
+        # Save to data/processed/ folder
+        processed_dir = Path('data/processed')
+        processed_dir.mkdir(parents=True, exist_ok=True)
+        base_name = Path(building_csv).stem
+        if financing_filter:
+            filter_suffix = financing_filter.lower().replace(' ', '_')
+            output_path = processed_dir / f"{base_name}_{filter_suffix}_timeline.csv"
+        else:
+            output_path = processed_dir / f"{base_name}_timeline.csv"
     
     df_timeline_output.to_csv(output_path, index=False)
     print(f"\n\nTimeline saved to: {output_path}")
@@ -330,9 +339,11 @@ def create_timeline(building_csv, filings_csv, co_filings_csv=None, output_path=
     quality_tracker.end_processing()
 
     # Generate timestamped filename based on input files
-    base_name = building_csv.replace('.csv', '').replace('Affordable_Housing_Production_by_Building', 'housing_data')
+    from pathlib import Path
+    base_filename = Path(building_csv).stem.replace('Affordable_Housing_Production_by_Building', 'housing_data')
     if financing_filter:
-        base_name += f"_{financing_filter.lower().replace(' ', '_')}"
+        base_filename += f"_{financing_filter.lower().replace(' ', '_')}"
+    base_name = base_filename
 
     report_filename = quality_tracker.save_report_to_file(base_name)
     quality_tracker.print_report()
