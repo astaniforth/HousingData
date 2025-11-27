@@ -252,7 +252,17 @@ def create_timeline_chart(timeline_csv, output_path=None):
             
             # Labels and title
             ax.set_xlabel('Date', fontsize=12, fontweight='bold')
-            title = f'Timeline Chart: DOB Application vs HPD Financing by BIN\n'
+
+            # Determine financing type from filename
+            financing_type = ""
+            if "hpd_financed" in timeline_csv.lower():
+                financing_type = "HPD Financed Projects"
+            elif "privately_financed" in timeline_csv.lower():
+                financing_type = "Privately Financed Projects"
+            else:
+                financing_type = "All Projects"
+
+            title = f'{financing_type} - Timeline Chart: DOB Application vs HPD Financing by BIN\n'
             title += f'Page {page_num + 1} of {num_pages} | BINs {start_idx + 1}-{end_idx} of {total_bins}'
             title += f'\n(Sorted by first DOB application date)'
             ax.set_title(title, fontsize=13, fontweight='bold', pad=20)
