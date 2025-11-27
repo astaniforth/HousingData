@@ -3,6 +3,7 @@ import re
 import sys
 import os
 from datetime import datetime
+from data_quality import quality_tracker
 
 def extract_date(date_value):
     """Extract date string, trying to parse various formats."""
@@ -186,9 +187,15 @@ def create_timeline(building_csv, filings_csv, co_filings_csv=None, output_path=
         financing_filter: Filter by financing type ('HPD Financed', 'Privately Financed', or None for all)
     """
 
+    # Start data quality tracking
+    quality_tracker.start_processing()
+
     print(f"Reading building data (HPD) from: {building_csv}...")
     df_buildings = pd.read_csv(building_csv)
     print(f"Total buildings: {len(df_buildings):,}")
+
+    # Analyze HPD data quality
+    quality_tracker.analyze_hpd_data(df_buildings)
 
     # Apply financing filter if specified
     if financing_filter:
@@ -306,7 +313,11 @@ def create_timeline(building_csv, filings_csv, co_filings_csv=None, output_path=
     
     df_timeline_output.to_csv(output_path, index=False)
     print(f"\n\nTimeline saved to: {output_path}")
-    
+
+    # End processing and generate data quality report
+    quality_tracker.end_processing()
+    quality_tracker.print_report()
+
     return df_timeline_output
 
 def create_separate_timelines(building_csv, filings_csv, co_filings_csv=None):

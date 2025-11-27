@@ -29,6 +29,7 @@ ENV/
 new_construction_bins.txt
 new_construction_bins_with_details.csv
 new_construction_missing_bins.csv
+*.pdf
 
 # IDE
 .vscode/
