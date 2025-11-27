@@ -376,9 +376,10 @@ class DataQualityTracker:
 
             if non_confidential > 0:
                 bin_completeness = (bins_present / non_confidential * 100)
-                report.append(f"    BINs: {bins_present:,}/{non_confidential:,} ({bin_completeness:.1f}%)")
+                completeness_note = f" ({bin_completeness:.1f}% of non-confidential)" if bins_confidential > 0 else f" ({bin_completeness:.1f}%)"
+                report.append(f"    BINs: {bins_present:,}/{non_confidential:,}{completeness_note}")
                 if bins_confidential > 0:
-                    report.append(f"      Confidential: {bins_confidential:,}")
+                    report.append(f"      Confidential: {bins_confidential:,} (intentionally omitted)")
                 if bins_missing > 0:
                     report.append(f"      Missing: {bins_missing:,}")
 
@@ -392,9 +393,10 @@ class DataQualityTracker:
 
             if non_confidential > 0:
                 bbl_completeness = (bbls_present / non_confidential * 100)
-                report.append(f"    BBLs: {bbls_present:,}/{non_confidential:,} ({bbl_completeness:.1f}%)")
+                completeness_note = f" ({bbl_completeness:.1f}% of non-confidential)" if bbls_confidential > 0 else f" ({bbl_completeness:.1f}%)"
+                report.append(f"    BBLs: {bbls_present:,}/{non_confidential:,}{completeness_note}")
                 if bbls_confidential > 0:
-                    report.append(f"      Confidential: {bbls_confidential:,}")
+                    report.append(f"      Confidential: {bbls_confidential:,} (intentionally omitted)")
                 if bbls_missing > 0:
                     report.append(f"      Missing: {bbls_missing:,}")
 
