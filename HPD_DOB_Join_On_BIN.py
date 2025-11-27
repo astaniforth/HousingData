@@ -190,12 +190,24 @@ def create_timeline(building_csv, filings_csv, co_filings_csv=None, output_path=
     # Start data quality tracking
     quality_tracker.start_processing()
 
-    print(f"Reading building data (HPD) from: {building_csv}...")
+    print(f"Reading building data (HPD) from: {building_csv}")
     df_buildings = pd.read_csv(building_csv)
     print(f"Total buildings: {len(df_buildings):,}")
 
-    # Analyze HPD data quality
-    quality_tracker.analyze_hpd_data(df_buildings)
+    # Analyze HPD data quality (current dataset)
+    dataset_name = "Filtered_HPD" if financing_filter else "Current_HPD"
+    quality_tracker.analyze_hpd_data(df_buildings, dataset_name)
+
+    # Also analyze the full HPD dataset if available and different
+    full_hpd_path = "Affordable_Housing_Production_by_Building.csv"
+    if os.path.exists(full_hpd_path) and building_csv != full_hpd_path:
+        print(f"\nReading full HPD dataset for comprehensive analysis: {full_hpd_path}")
+        try:
+            df_full_hpd = pd.read_csv(full_hpd_path)
+            print(f"Full HPD dataset: {len(df_full_hpd):,} records")
+            quality_tracker.analyze_hpd_data(df_full_hpd, "Full_HPD_Dataset")
+        except Exception as e:
+            print(f"Warning: Could not analyze full HPD dataset: {e}")
 
     # Apply financing filter if specified
     if financing_filter:

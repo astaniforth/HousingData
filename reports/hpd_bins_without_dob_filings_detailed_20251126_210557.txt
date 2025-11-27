@@ -1,0 +1,103 @@
+================================================================================
+🏗️  HOUSING DATA QUALITY REPORT
+================================================================================
+⏱️  Processing Time: 0.2 seconds
+
+📊 DATA COMPLETENESS
+----------------------------------------
+Full HPD Dataset: 691 records
+  BINs Present: 0 (0.0%)
+  BBLs Present: 0 (0.0%)
+  Addresses Complete: 0 (0.0%)
+  Project Dates Complete: 0 (0.0%)
+
+Current Dataset: 248 records
+  BINs Present: 0 (0.0%)
+  BBLs Present: 0 (0.0%)
+  Addresses Complete: 0 (0.0%)
+  Project Dates Complete: 0 (0.0%)
+
+
+🔍 DATA QUALITY ISSUES
+----------------------------------------
+BBL-Borough Consistency: 35/747 (4.7%)
+  ⚠️  Inconsistencies Found: 712
+Duplicate BINs: 6
+Duplicate BBLs: 13
+Date Validation Issues: 2
+  Future Dates: 2
+
+🔗 DOB MATCHING PERFORMANCE
+----------------------------------------
+
+
+🔬 DETAILED DATASET ANALYSIS
+----------------------------------------
+🏙️ Full Hpd Dataset Borough Distribution:
+  Brooklyn: 265 (38.4%)
+  Bronx: 227 (32.9%)
+  Queens: 126 (18.2%)
+  Manhattan: 41 (5.9%)
+  Staten Island: 32 (4.6%)
+
+
+🏠 Unit Statistics:
+  Current Hpd Total Units:
+    Total: 14,079
+    Average: 56.8
+    Range: 6 - 542
+  Current Hpd All Counted Units:
+    Total: 8,316
+    Average: 33.5
+    Range: 2 - 542
+  Current Hpd Counted Rental Units:
+    Total: 8,187
+    Average: 34.3
+    Range: 2 - 542
+    Missing: 9
+  Current Hpd Counted Homeownership Units:
+    Total: 129
+    Average: 14.3
+    Range: 8 - 31
+    Missing: 239
+  Full Hpd Dataset Total Units:
+    Total: 33,780
+    Average: 48.9
+    Range: 1 - 921
+  Full Hpd Dataset All Counted Units:
+    Total: 18,196
+    Average: 26.3
+    Range: 1 - 542
+  Full Hpd Dataset Counted Rental Units:
+    Total: 17,814
+    Average: 35.3
+    Range: 1 - 542
+    Missing: 186
+  Full Hpd Dataset Counted Homeownership Units:
+    Total: 382
+    Average: 2.1
+    Range: 1 - 31
+    Missing: 505
+
+📅 Project Timeline:
+  Current Hpd Project Start Date:
+    From: 2015-05-05 to 2025-03-12
+    Span: 9.9 years
+  Current Hpd Project Completion Date:
+    From: 2024-01-26 to 2025-06-27
+    Span: 1.4 years
+  Current Hpd Building Completion Date:
+    From: 2022-05-27 to 2025-12-30
+    Span: 3.6 years
+  Full Hpd Dataset Project Start Date:
+    From: 2015-05-05 to 2025-06-30
+    Span: 10.2 years
+  Full Hpd Dataset Project Completion Date:
+    From: 2024-01-05 to 2025-06-30
+    Span: 1.5 years
+  Full Hpd Dataset Building Completion Date:
+    From: 2021-11-03 to 2025-12-30
+    Span: 4.2 years
+
+✅ Data Quality Report Complete
+================================================================================

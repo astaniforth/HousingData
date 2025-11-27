@@ -104,28 +104,44 @@ class DataQualityTracker:
         """Mark the end of processing."""
         self.metrics['processing_end_time'] = datetime.now()
 
-    def analyze_hpd_data(self, df):
-        """Analyze HPD data quality."""
-        self.metrics['total_records'] = len(df)
+    def analyze_hpd_data(self, df, dataset_name="HPD Data"):
+        """Analyze HPD data quality comprehensively."""
+        self.metrics[f'{dataset_name}_total_records'] = len(df)
+        # Only set main total for the primary dataset
+        if dataset_name == "HPD Data" or dataset_name == "Current_HPD":
+            self.metrics['total_records'] = len(df)
 
-        # Data completeness
-        self.metrics['records_with_bin'] = df['BIN'].notna().sum()
-        self.metrics['records_with_bbl'] = df['BBL'].notna().sum()
-        self.metrics['records_with_address'] = (
+        # Dataset-specific data completeness
+        prefix = dataset_name.lower().replace(' ', '_')
+        self.metrics[f'{prefix}_records_with_bin'] = df['BIN'].notna().sum()
+        self.metrics[f'{prefix}_records_with_bbl'] = df['BBL'].notna().sum()
+        self.metrics[f'{prefix}_records_with_address'] = (
             df['Number'].notna() & df['Street'].notna()
         ).sum()
-        self.metrics['records_with_project_dates'] = (
+        self.metrics[f'{prefix}_records_with_project_dates'] = (
             df['Project Start Date'].notna() & df['Project Completion Date'].notna()
         ).sum()
 
-        # Missing data counts
-        self.metrics['missing_bins'] = df['BIN'].isna().sum()
-        self.metrics['missing_bbls'] = df['BBL'].isna().sum()
-        self.metrics['missing_addresses'] = (
+        # Dataset-specific missing data counts
+        self.metrics[f'{prefix}_missing_bins'] = df['BIN'].isna().sum()
+        self.metrics[f'{prefix}_missing_bbls'] = df['BBL'].isna().sum()
+        self.metrics[f'{prefix}_missing_addresses'] = (
             df['Number'].isna() | df['Street'].isna()
         ).sum()
-        self.metrics['missing_start_dates'] = df['Project Start Date'].isna().sum()
-        self.metrics['missing_completion_dates'] = df['Project Completion Date'].isna().sum()
+        self.metrics[f'{prefix}_missing_start_dates'] = df['Project Start Date'].isna().sum()
+        self.metrics[f'{prefix}_missing_completion_dates'] = df['Project Completion Date'].isna().sum()
+
+        # For backward compatibility, also set global metrics for primary dataset
+        if dataset_name in ["HPD Data", "Current_HPD"]:
+            self.metrics['records_with_bin'] = self.metrics[f'{prefix}_records_with_bin']
+            self.metrics['records_with_bbl'] = self.metrics[f'{prefix}_records_with_bbl']
+            self.metrics['records_with_address'] = self.metrics[f'{prefix}_records_with_address']
+            self.metrics['records_with_project_dates'] = self.metrics[f'{prefix}_records_with_project_dates']
+            self.metrics['missing_bins'] = self.metrics[f'{prefix}_missing_bins']
+            self.metrics['missing_bbls'] = self.metrics[f'{prefix}_missing_bbls']
+            self.metrics['missing_addresses'] = self.metrics[f'{prefix}_missing_addresses']
+            self.metrics['missing_start_dates'] = self.metrics[f'{prefix}_missing_start_dates']
+            self.metrics['missing_completion_dates'] = self.metrics[f'{prefix}_missing_completion_dates']
 
         # BBL-borough consistency
         for idx, row in df.iterrows():
@@ -157,6 +173,66 @@ class DataQualityTracker:
                 future_dates = dates > today
                 self.metrics['invalid_dates'] += invalid_dates.sum()
                 self.metrics['future_dates'] += future_dates.sum()
+
+        # Enhanced analysis for full dataset
+        if len(df) > 100:  # Only do detailed analysis for larger datasets
+            self._analyze_hpd_detailed(df, dataset_name)
+
+    def _analyze_hpd_detailed(self, df, dataset_name):
+        """Perform detailed analysis on larger HPD datasets."""
+        # Borough distribution
+        if 'Borough' in df.columns:
+            borough_dist = df['Borough'].value_counts().to_dict()
+            self.metrics[f'{dataset_name}_borough_distribution'] = borough_dist
+
+        # Financing analysis (if available)
+        financing_cols = ['Extended Affordability Only', 'Prevailing Wage Status']
+        for col in financing_cols:
+            if col in df.columns:
+                dist = df[col].value_counts().to_dict()
+                self.metrics[f'{dataset_name}_{col.lower().replace(" ", "_")}_distribution'] = dist
+
+        # Construction type analysis
+        if 'Reporting Construction Type' in df.columns:
+            construction_dist = df['Reporting Construction Type'].value_counts().to_dict()
+            self.metrics[f'{dataset_name}_construction_type_distribution'] = construction_dist
+
+        # Unit analysis
+        unit_cols = ['Total Units', 'All Counted Units', 'Counted Rental Units', 'Counted Homeownership Units']
+        for col in unit_cols:
+            if col in df.columns:
+                units = pd.to_numeric(df[col], errors='coerce')
+                self.metrics[f'{dataset_name}_{col.lower().replace(" ", "_")}_stats'] = {
+                    'total': units.sum(),
+                    'average': units.mean(),
+                    'median': units.median(),
+                    'min': units.min(),
+                    'max': units.max(),
+                    'missing': units.isna().sum()
+                }
+
+        # Time-based analysis
+        date_cols = ['Project Start Date', 'Project Completion Date', 'Building Completion Date']
+        for col in date_cols:
+            if col in df.columns:
+                dates = pd.to_datetime(df[col], errors='coerce')
+                valid_dates = dates.dropna()
+                if len(valid_dates) > 0:
+                    self.metrics[f'{dataset_name}_{col.lower().replace(" ", "_")}_date_range'] = {
+                        'earliest': valid_dates.min().strftime('%Y-%m-%d'),
+                        'latest': valid_dates.max().strftime('%Y-%m-%d'),
+                        'span_years': (valid_dates.max() - valid_dates.min()).days / 365.25
+                    }
+
+        # Geographic analysis
+        if 'Latitude' in df.columns and 'Longitude' in df.columns:
+            lat = pd.to_numeric(df['Latitude'], errors='coerce')
+            lon = pd.to_numeric(df['Longitude'], errors='coerce')
+            valid_coords = df[lat.notna() & lon.notna()]
+            self.metrics[f'{dataset_name}_geographic_coverage'] = {
+                'coordinates_available': len(valid_coords),
+                'coordinates_missing': len(df) - len(valid_coords)
+            }
 
     def record_bin_matching(self, total_bins, matched_bins):
         """Record BIN matching statistics."""
@@ -210,23 +286,66 @@ class DataQualityTracker:
         # Data completeness section
         report.append("📊 DATA COMPLETENESS")
         report.append("-" * 40)
-        total = self.metrics['total_records']
-        report.append(f"Total Records: {total:,}")
 
-        completeness_metrics = [
-            ('BINs Present', 'records_with_bin', 'missing_bins'),
-            ('BBLs Present', 'records_with_bbl', 'missing_bbls'),
-            ('Addresses Complete', 'records_with_address', 'missing_addresses'),
-            ('Project Dates Complete', 'records_with_project_dates', None),
-        ]
+        # Show multiple datasets if available
+        datasets = []
+        if 'Full_HPD_Dataset_total_records' in self.metrics:
+            datasets.append(('Full HPD Dataset', 'Full_HPD_Dataset'))
+        if 'Filtered_HPD_total_records' in self.metrics:
+            datasets.append(('Filtered Dataset', 'Filtered_HPD'))
+        elif 'Current_HPD_total_records' in self.metrics:
+            datasets.append(('Current Dataset', 'Current_HPD'))
 
-        for label, present_key, missing_key in completeness_metrics:
-            present = self.metrics[present_key]
-            pct = (present / total * 100) if total > 0 else 0
-            report.append(f"  {label}: {present:,} ({pct:.1f}%)")
-            if missing_key:
-                missing = self.metrics[missing_key]
-                report.append(f"    Missing: {missing:,}")
+        if not datasets:
+            datasets.append(('Dataset', ''))
+
+        for dataset_label, prefix in datasets:
+            # Handle different key formats
+            total_key = f'{prefix}_total_records' if prefix else 'total_records'
+            if total_key not in self.metrics:
+                # Try lowercase version
+                total_key = f'{prefix.lower()}_total_records' if prefix else 'total_records'
+                if total_key not in self.metrics:
+                    continue
+
+            total = self.metrics[total_key]
+            report.append(f"{dataset_label}: {total:,} records")
+
+            # Use dataset-specific keys (try both title case and lowercase)
+            def get_dataset_key(base_key, dataset_prefix):
+                if not dataset_prefix:
+                    return base_key
+
+                # Try title case first
+                title_key = f'{dataset_prefix}_{base_key}'
+                if title_key in self.metrics:
+                    return title_key
+
+                # Try lowercase
+                lower_key = f'{dataset_prefix.lower()}_{base_key}'
+                if lower_key in self.metrics:
+                    return lower_key
+
+                return base_key
+
+            completeness_metrics = [
+                ('BINs Present', 'records_with_bin', 'missing_bins'),
+                ('BBLs Present', 'records_with_bbl', 'missing_bbls'),
+                ('Addresses Complete', 'records_with_address', 'missing_addresses'),
+                ('Project Dates Complete', 'records_with_project_dates', None),
+            ]
+
+            for label, present_key, missing_key in completeness_metrics:
+                present_key_full = get_dataset_key(present_key, prefix)
+                present = self.metrics.get(present_key_full, 0)
+                pct = (present / total * 100) if total > 0 else 0
+                report.append(f"  {label}: {present:,} ({pct:.1f}%)")
+                if missing_key:
+                    missing_key_full = get_dataset_key(missing_key, prefix)
+                    missing = self.metrics.get(missing_key_full, 0)
+                    if missing > 0:
+                        report.append(f"    Missing: {missing:,}")
+            report.append("")
 
         report.append("")
 
@@ -312,11 +431,88 @@ class DataQualityTracker:
             report.append(f"Errors: {errors:,}")
             report.append(f"Success Rate: {success_rate:.1f}%")
 
+        # Enhanced analysis section (only show for larger datasets)
+        if self.metrics.get('total_records', 0) > 100:
+            report.extend(self._generate_detailed_report())
+
         report.append("")
         report.append("✅ Data Quality Report Complete")
         report.append("=" * 80)
 
         return "\n".join(report)
+
+    def _generate_detailed_report(self):
+        """Generate detailed analysis section for larger datasets."""
+        report = []
+        report.append("")
+        report.append("🔬 DETAILED DATASET ANALYSIS")
+        report.append("-" * 40)
+
+        # Borough distribution - check both possible keys
+        borough_keys = ['HPD Data_borough_distribution', 'Full_HPD_Dataset_borough_distribution', 'Current_HPD_borough_distribution']
+        for borough_key in borough_keys:
+            if borough_key in self.metrics:
+                dataset_name = borough_key.replace('_borough_distribution', '').replace('_', ' ').title()
+                report.append(f"🏙️ {dataset_name} Borough Distribution:")
+                borough_dist = self.metrics[borough_key]
+                total = sum(borough_dist.values())
+                for borough, count in sorted(borough_dist.items(), key=lambda x: x[1], reverse=True):
+                    pct = (count / total * 100) if total > 0 else 0
+                    report.append(f"  {borough}: {count:,} ({pct:.1f}%)")
+                report.append("")
+                break  # Only show one borough distribution
+
+        # Construction type distribution
+        construction_key = 'HPD Data_construction_type_distribution'
+        if construction_key in self.metrics:
+            report.append("")
+            report.append("🏗️ Construction Type Distribution:")
+            construction_dist = self.metrics[construction_key]
+            total = sum(construction_dist.values())
+            for const_type, count in sorted(construction_dist.items(), key=lambda x: x[1], reverse=True):
+                pct = (count / total * 100) if total > 0 else 0
+                report.append(f"  {const_type}: {count:,} ({pct:.1f}%)")
+
+        # Unit statistics
+        unit_stats_keys = [k for k in self.metrics.keys() if k.endswith('_stats') and 'units' in k.lower()]
+        if unit_stats_keys:
+            report.append("")
+            report.append("🏠 Unit Statistics:")
+            for key in unit_stats_keys:
+                stat_name = key.replace('HPD Data_', '').replace('_stats', '').replace('_', ' ').title()
+                stats = self.metrics[key]
+                report.append(f"  {stat_name}:")
+                report.append(f"    Total: {stats['total']:,.0f}")
+                report.append(f"    Average: {stats['average']:.1f}")
+                report.append(f"    Range: {stats['min']:.0f} - {stats['max']:.0f}")
+                if stats['missing'] > 0:
+                    report.append(f"    Missing: {stats['missing']:,}")
+
+        # Date range analysis
+        date_range_keys = [k for k in self.metrics.keys() if k.endswith('_date_range')]
+        if date_range_keys:
+            report.append("")
+            report.append("📅 Project Timeline:")
+            for key in date_range_keys:
+                date_name = key.replace('HPD Data_', '').replace('_date_range', '').replace('_', ' ').title()
+                date_range = self.metrics[key]
+                report.append(f"  {date_name}:")
+                report.append(f"    From: {date_range['earliest']} to {date_range['latest']}")
+                report.append(f"    Span: {date_range['span_years']:.1f} years")
+
+        # Geographic coverage
+        geo_key = 'HPD Data_geographic_coverage'
+        if geo_key in self.metrics:
+            report.append("")
+            report.append("🌍 Geographic Coverage:")
+            geo_stats = self.metrics[geo_key]
+            total = geo_stats['coordinates_available'] + geo_stats['coordinates_missing']
+            available_pct = (geo_stats['coordinates_available'] / total * 100) if total > 0 else 0
+            report.append(f"  Coordinates Available: {geo_stats['coordinates_available']:,} ({available_pct:.1f}%)")
+            if geo_stats['coordinates_missing'] > 0:
+                report.append(f"  Coordinates Missing: {geo_stats['coordinates_missing']:,}")
+
+        return report
 
     def print_report(self):
         """Print the data quality report to console."""
