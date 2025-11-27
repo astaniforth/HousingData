@@ -155,22 +155,40 @@ def create_timeline_chart(timeline_csv, output_path=None):
     
     # Number of BINs per page
     bins_per_page = 25
-    
+
     # Create multi-page PDF chart
     print("\nCreating multi-page timeline chart...")
-    
+
     # Determine output path
     if output_path is None:
         output_path = timeline_csv.replace('.csv', '_timeline_chart.pdf')
     elif not output_path.endswith('.pdf'):
         output_path = output_path.replace('.png', '.pdf')
-    
+
     # Calculate number of pages needed
     total_bins = len(complete_timelines)
     num_pages = int(np.ceil(total_bins / bins_per_page))
-    
+
     print(f"Creating {num_pages} page(s) with up to {bins_per_page} BINs per page...")
-    
+
+    # Determine consistent date range across all pages
+    all_dates = []
+    date_columns = ['DOB_Submitted', 'DOB_Approved', 'HPD_Submitted', 'HPD_Completed', 'CO_Initial', 'CO_Final']
+    for col in date_columns:
+        if col in complete_timelines.columns:
+            dates = complete_timelines[col].dropna()
+            all_dates.extend(dates)
+
+    if all_dates:
+        min_date = min(all_dates) - pd.Timedelta(days=180)  # 6 months buffer
+        max_date = max(all_dates) + pd.Timedelta(days=180)  # 6 months buffer
+    else:
+        # Fallback if no dates found
+        min_date = pd.Timestamp('2010-01-01')
+        max_date = pd.Timestamp('2030-01-01')
+
+    print(f"Consistent date range: {min_date.date()} to {max_date.date()}")
+
     # Create PDF
     with PdfPages(output_path) as pdf:
         for page_num in range(num_pages):
@@ -178,9 +196,10 @@ def create_timeline_chart(timeline_csv, output_path=None):
             end_idx = min(start_idx + bins_per_page, total_bins)
             page_data = complete_timelines.iloc[start_idx:end_idx].copy()
             
-            # Create figure for this page
-            fig, ax = plt.subplots(figsize=(14, max(8, len(page_data) * 0.35)))
-            
+            # Create figure for this page with consistent dimensions
+            # Fixed height based on 25 BINs (bins_per_page) for consistent vertical scale
+            fig, ax = plt.subplots(figsize=(14, bins_per_page * 0.35))
+
             # Calculate positions for each BIN on this page
             y_positions = range(len(page_data))
             
@@ -234,22 +253,31 @@ def create_timeline_chart(timeline_csv, output_path=None):
                     if not co_final_labeled:
                         co_final_labeled = True
             
-            # Set y-axis labels
+            # Set y-axis labels with consistent positioning
             labels = []
             for idx, (i, row) in enumerate(page_data.iterrows()):
                 bin_str = str(int(row['BIN'])) if pd.notna(row['BIN']) else 'N/A'
                 address = str(row['Address'])[:50] if pd.notna(row['Address']) else 'N/A'
                 labels.append(f"{bin_str}\n{address}")
-            
-            ax.set_yticks(y_positions)
+
+            # Pad labels to ensure consistent y-axis height (25 slots)
+            while len(labels) < bins_per_page:
+                labels.append("")
+
+            # Set consistent y-axis limits (0 to bins_per_page-1)
+            ax.set_ylim(-0.5, bins_per_page - 0.5)
+            ax.set_yticks(range(bins_per_page))
             ax.set_yticklabels(labels, fontsize=7)
             ax.invert_yaxis()  # Top to bottom
             
+            # Set consistent x-axis limits across all pages
+            ax.set_xlim(min_date, max_date)
+
             # Format x-axis as dates
             ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
             ax.xaxis.set_major_locator(mdates.YearLocator())
             plt.xticks(rotation=45, ha='right')
-            
+
             # Labels and title
             ax.set_xlabel('Date', fontsize=12, fontweight='bold')
 
