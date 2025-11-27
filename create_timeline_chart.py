@@ -7,6 +7,7 @@ import sys
 import os
 import re
 import numpy as np
+from pathlib import Path
 
 def extract_date(date_value):
     """Extract date string, trying to parse various formats."""
@@ -159,11 +160,17 @@ def create_timeline_chart(timeline_csv, output_path=None, global_min_date=None, 
     # Create multi-page PDF chart
     print("\nCreating multi-page timeline chart...")
 
+    # Create output directory if it doesn't exist
+    output_dir = Path('output')
+    output_dir.mkdir(exist_ok=True)
+
     # Determine output path
     if output_path is None:
-        output_path = timeline_csv.replace('.csv', '_timeline_chart.pdf')
+        base_filename = Path(timeline_csv).stem
+        output_path = output_dir / f"{base_filename}_timeline_chart.pdf"
     elif not output_path.endswith('.pdf'):
         output_path = output_path.replace('.png', '.pdf')
+        output_path = Path(output_dir) / Path(output_path).name
 
     # Calculate number of pages needed
     total_bins = len(complete_timelines)
@@ -312,7 +319,8 @@ def create_timeline_chart(timeline_csv, output_path=None, global_min_date=None, 
     print(f"\nMulti-page chart saved to: {output_path}")
     
     # Also save the timeline data
-    data_output = timeline_csv.replace('.csv', '_timeline_data.csv')
+    base_filename = Path(timeline_csv).stem
+    data_output = output_dir / f"{base_filename}_timeline_data.csv"
     complete_timelines.to_csv(data_output, index=False)
     print(f"Timeline data saved to: {data_output}")
     
