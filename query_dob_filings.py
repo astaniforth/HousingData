@@ -424,7 +424,11 @@ def query_dob_filings(search_file_path, output_path=None, use_bbl_fallback=True)
         print(f"Summary by BIN saved to: {summary_path}")
 
     # Generate data quality report
+    base_name = bin_file_path.replace('.csv', '').replace('.txt', '').replace('_bins', '_dob_search')
+    report_filename = quality_tracker.save_report_to_file(base_name)
     quality_tracker.print_report()
+
+    print(f"📊 Data quality report also saved to: {report_filename}")
     
     # Show sample records
     print("\n" + "=" * 70)

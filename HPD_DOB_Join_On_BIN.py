@@ -316,7 +316,16 @@ def create_timeline(building_csv, filings_csv, co_filings_csv=None, output_path=
 
     # End processing and generate data quality report
     quality_tracker.end_processing()
+
+    # Generate timestamped filename based on input files
+    base_name = building_csv.replace('.csv', '').replace('Affordable_Housing_Production_by_Building', 'housing_data')
+    if financing_filter:
+        base_name += f"_{financing_filter.lower().replace(' ', '_')}"
+
+    report_filename = quality_tracker.save_report_to_file(base_name)
     quality_tracker.print_report()
+
+    print(f"📊 Data quality report also saved to: {report_filename}")
 
     return df_timeline_output
 

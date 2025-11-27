@@ -322,6 +322,26 @@ class DataQualityTracker:
         """Print the data quality report to console."""
         print(self.generate_report())
 
+    def save_report_to_file(self, base_filename=None):
+        """Save the data quality report to a timestamped file."""
+        import os
+        from datetime import datetime
+
+        if base_filename is None:
+            base_filename = "data_quality_report"
+
+        # Create reports directory if it doesn't exist
+        reports_dir = "reports"
+        if not os.path.exists(reports_dir):
+            os.makedirs(reports_dir)
+
+        # Generate timestamped filename
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"{reports_dir}/{base_filename}_{timestamp}.txt"
+
+        self.save_report(filename)
+        return filename
+
     def save_report(self, filename):
         """Save the data quality report to a file."""
         with open(filename, 'w') as f:
