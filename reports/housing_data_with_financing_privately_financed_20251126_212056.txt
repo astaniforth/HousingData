@@ -1,0 +1,56 @@
+================================================================================
+🏗️  HOUSING DATA QUALITY REPORT
+================================================================================
+
+📊 DATASET LINEAGE & FILTERING
+----------------------------------------
+⏱️  Processing Time: 0.2 seconds
+
+📊 DATA COMPLETENESS
+----------------------------------------
+Full Hpd Dataset: 691 records
+  📋 Breakdown:
+    Confidential: 166 (24.0%)
+    BINs: 512/525 (97.5% of non-confidential)
+      Confidential: 166 (intentionally omitted)
+      Missing: 13
+    BBLs: 512/525 (97.5% of non-confidential)
+      Confidential: 166 (intentionally omitted)
+      Missing: 13
+    Addresses: 691/691 (100.0%)
+    Project Start Dates: 691/691 (100.0%)
+    Project Completion Dates: 691/691 (100.0%)
+    Both Project Dates: 691/691 (100.0%)
+    Building Completion Dates: 690/691 (99.9%)
+
+Filtered Hpd: 691 records
+  📋 Breakdown:
+    Confidential: 166 (24.0%)
+    BINs: 512/525 (97.5% of non-confidential)
+      Confidential: 166 (intentionally omitted)
+      Missing: 13
+    BBLs: 512/525 (97.5% of non-confidential)
+      Confidential: 166 (intentionally omitted)
+      Missing: 13
+    Addresses: 691/691 (100.0%)
+    Project Start Dates: 691/691 (100.0%)
+    Project Completion Dates: 691/691 (100.0%)
+    Both Project Dates: 691/691 (100.0%)
+    Building Completion Dates: 690/691 (99.9%)
+
+
+🔍 DATA QUALITY ISSUES
+----------------------------------------
+BBL-Borough Consistency: 112/2,048 (5.5%)
+  ⚠️  Inconsistencies Found: 1,936
+Duplicate BINs: 6
+Duplicate BBLs: 13
+Date Validation Issues: 4
+  Future Dates: 4
+
+🔗 DOB MATCHING PERFORMANCE
+----------------------------------------
+
+
+✅ Data Quality Report Complete
+================================================================================
