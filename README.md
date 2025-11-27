@@ -17,10 +17,16 @@ Queries NYC Open Data APIs to find DOB job filings for new construction projects
 - Searches DOB Job Application Filings API for job type "NB"
 - Searches DOB NOW Job Applications API for job type "New Building"
 - Matches filings to BINs from the housing data
+- **BBL Fallback**: When BINs are missing, decomposes BBL into borough/block/lot for alternative search
+- **Multiple BIN Handling**: Recognizes that one BBL can contain multiple BINs
 
 **Usage:**
 ```bash
-python query_dob_filings.py new_construction_bins.txt
+# Search by BIN file
+python query_dob_filings.py bins_file.txt
+
+# Search by CSV with BIN/BBL columns (enables BBL fallback)
+python query_dob_filings.py data_with_bbl.csv
 ```
 
 #### `query_co_filings.py`
@@ -92,7 +98,7 @@ pip install pandas matplotlib requests beautifulsoup4
 
 1. Extract BINs for new construction projects from `Affordable_Housing_Production_by_Building.csv`
 2. Query LL44 funding database to classify projects by financing type using `query_ll44_funding.py`
-3. Query DOB APIs for NB/New Building filings using `query_dob_filings.py`
+3. Query DOB APIs for NB/New Building filings using `query_dob_filings.py` (includes BBL fallback for missing BINs)
 4. Query CO APIs for Certificate of Occupancy data using `query_co_filings.py`
 5. Join HPD, DOB, and CO data by BIN using `HPD_DOB_Join_On_BIN.py` (creates separate timelines for HPD and private projects)
 6. Visualize timelines using `create_timeline_chart.py` (creates separate charts for HPD and private projects)

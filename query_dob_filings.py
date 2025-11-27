@@ -9,63 +9,106 @@ from urllib.parse import quote
 DOB_JOB_APPLICATIONS_URL = "https://data.cityofnewyork.us/resource/ic3t-wcy2.json"
 DOB_NOW_JOB_APPLICATIONS_URL = "https://data.cityofnewyork.us/resource/w9ak-ipjd.json"
 
-def query_dob_api(url, bin_list, job_type="NB", bin_column="bin", limit=50000):
+def decompose_bbl(bbl):
+    """Decompose BBL into borough, block, lot components"""
+    if pd.isna(bbl):
+        return None, None, None
+
+    bbl_str = str(int(float(bbl)))  # Convert to string, remove .0
+
+    if len(bbl_str) != 10:
+        return None, None, None
+
+    borough_code = bbl_str[0]
+    block = int(bbl_str[1:6])  # Convert to integer
+    lot = int(bbl_str[6:10])   # Convert to integer
+
+    # Convert borough code to name (DOB APIs use names, not codes)
+    borough_mapping = {
+        '1': 'MANHATTAN',
+        '2': 'BROOKLYN',
+        '3': 'QUEENS',
+        '4': 'BRONX',
+        '5': 'STATEN ISLAND'
+    }
+
+    borough_name = borough_mapping.get(borough_code, borough_code)
+
+    return borough_name, block, lot
+
+def query_dob_api(url, search_list, job_type="NB", search_type="bin", limit=50000):
     """
-    Query DOB API for job filings matching BINs and job type.
-    
+    Query DOB API for job filings matching BINs or BBL components.
+
     Args:
         url: API endpoint URL
-        bin_list: List of BINs to search for
+        search_list: List of BINs or BBL tuples to search for
         job_type: Job type to filter (default "NB" for new building)
-        bin_column: Column name for BIN (varies by API: "bin" or "bin__")
+        search_type: Type of search - "bin" or "bbl"
         limit: Maximum number of records to retrieve
-    
+
     Returns:
         DataFrame with matching records
     """
     print(f"\nQuerying API: {url}")
     print(f"Looking for job type: {job_type}")
-    print(f"BIN column: {bin_column}")
-    print(f"Number of BINs to check: {len(bin_list)}")
-    
+    print(f"Search type: {search_type}")
+    print(f"Number of items to check: {len(search_list)}")
+
     all_results = []
-    
+
     # Query in batches to avoid URL length limits
     batch_size = 50
-    for i in range(0, len(bin_list), batch_size):
-        batch = bin_list[i:i+batch_size]
-        
-        # Build query: job_type = 'NB' AND bin_column IN (list of bins)
-        # Note: BINs need to be strings in the query
-        bin_filter = " OR ".join([f"{bin_column}='{bin_num}'" for bin_num in batch])
-        query = f"job_type='{job_type}' AND ({bin_filter})"
-        
+    for i in range(0, len(search_list), batch_size):
+        batch = search_list[i:i+batch_size]
+
+        if search_type == "bin":
+            # Original BIN-based search
+            bin_column = "bin__" if "ic3t-wcy2" in url else "bin"  # DOB vs DOB NOW
+            bin_filter = " OR ".join([f"{bin_column}='{bin_num}'" for bin_num in batch])
+            query = f"job_type='{job_type}' AND ({bin_filter})"
+        elif search_type == "bbl":
+            # BBL-based search using borough, block, lot
+            bbl_filters = []
+            for bbl_tuple in batch:
+                if bbl_tuple and len(bbl_tuple) == 3:
+                    borough, block, lot = bbl_tuple
+                    bbl_filters.append(f"borough='{borough}' AND block={block} AND lot={lot}")
+                else:
+                    continue
+            if bbl_filters:
+                query = f"job_type='{job_type}' AND ({' OR '.join(bbl_filters)})"
+            else:
+                continue
+        else:
+            continue
+
         params = {
             '$where': query,
             '$limit': limit
         }
-        
+
         try:
-            print(f"  Querying batch {i//batch_size + 1} (BINs {i+1}-{min(i+batch_size, len(bin_list))})...")
+            print(f"  Querying batch {i//batch_size + 1} (Items {i+1}-{min(i+batch_size, len(search_list))})...")
             response = requests.get(url, params=params, timeout=30)
             response.raise_for_status()
-            
+
             data = response.json()
             if data:
                 all_results.extend(data)
                 print(f"    Found {len(data)} records")
             else:
                 print(f"    No records found")
-            
+
             # Rate limiting
             time.sleep(0.5)
-            
+
         except Exception as e:
             print(f"    Error querying batch: {str(e)}")
             if hasattr(e, 'response') and e.response is not None:
                 print(f"    Response: {e.response.text[:200]}")
             continue
-    
+
     if all_results:
         df = pd.DataFrame(all_results)
         print(f"\nTotal records found: {len(df)}")
@@ -74,35 +117,77 @@ def query_dob_api(url, bin_list, job_type="NB", bin_column="bin", limit=50000):
         print(f"\nNo records found")
         return pd.DataFrame()
 
-def query_dob_filings(bin_file_path, output_path=None):
+def query_dob_filings(search_file_path, output_path=None, use_bbl_fallback=True):
     """
-    Query both DOB APIs for new building filings associated with BINs.
-    
+    Query both DOB APIs for new building filings associated with BINs or BBLs.
+
     Args:
-        bin_file_path: Path to file containing BINs (one per line)
+        search_file_path: Path to file containing BINs/BBLs (one per line) or CSV with search data
         output_path: Path to save results CSV
+        use_bbl_fallback: Whether to use BBL fallback for missing BINs
     """
-    
-    # Read BINs from file
-    print(f"Reading BINs from: {bin_file_path}")
-    with open(bin_file_path, 'r') as f:
-        bins = [line.strip() for line in f if line.strip()]
-    
-    # Convert to integers and remove duplicates
-    bins = sorted(list(set([int(bin_str) for bin_str in bins if bin_str.isdigit()])))
-    print(f"Found {len(bins)} unique BINs\n")
-    
-    # Query DOB Job Application Filings API (uses bin__ column)
+
+    # Try to read as CSV first (with BIN/BBL columns), fall back to text file
+    try:
+        search_df = pd.read_csv(search_file_path)
+        print(f"Reading search data from CSV: {search_file_path}")
+
+        # Extract BINs and BBLs
+        bins = []
+        bbl_tuples = []
+
+        if 'BIN_normalized' in search_df.columns:
+            bins = [str(b).replace('.0', '') for b in search_df['BIN_normalized'].dropna() if str(b) != 'nan']
+        elif 'BIN' in search_df.columns:
+            bins = [str(b).replace('.0', '') for b in search_df['BIN'].dropna() if str(b) != 'nan']
+
+        if use_bbl_fallback and 'BBL' in search_df.columns:
+            bbl_values = search_df['BBL'].dropna()
+            for bbl in bbl_values:
+                bbl_tuple = decompose_bbl(bbl)
+                if bbl_tuple[0] is not None:  # Valid BBL
+                    bbl_tuples.append(bbl_tuple)
+
+        print(f"Found {len(bins)} BINs and {len(bbl_tuples)} BBLs to search")
+
+    except:
+        # Fall back to reading as text file with BINs
+        print(f"Reading BINs from text file: {search_file_path}")
+        with open(search_file_path, 'r') as f:
+            bins = [line.strip() for line in f if line.strip() and not line.startswith('#')]
+
+        # Convert to integers and remove duplicates
+        bins = sorted(list(set([bin_str for bin_str in bins if bin_str and bin_str != 'nan'])))
+        bbl_tuples = []
+        print(f"Found {len(bins)} unique BINs\n")
+
+    # Query DOB Job Application Filings API
     print("=" * 70)
     print("QUERYING DOB JOB APPLICATION FILINGS")
     print("=" * 70)
-    dob_filings = query_dob_api(DOB_JOB_APPLICATIONS_URL, bins, job_type="NB", bin_column="bin__")
-    
-    # Query DOB NOW Job Applications API (uses bin column and "New Building" as job type)
+    dob_filings = query_dob_api(DOB_JOB_APPLICATIONS_URL, bins, job_type="NB", search_type="bin")
+
+    # Query DOB NOW Job Applications API
     print("\n" + "=" * 70)
     print("QUERYING DOB NOW JOB APPLICATIONS")
     print("=" * 70)
-    dob_now_filings = query_dob_api(DOB_NOW_JOB_APPLICATIONS_URL, bins, job_type="New Building", bin_column="bin")
+    dob_now_filings = query_dob_api(DOB_NOW_JOB_APPLICATIONS_URL, bins, job_type="New Building", search_type="bin")
+
+    # If we have BBLs and want fallback, search by BBL as well
+    if use_bbl_fallback and bbl_tuples:
+        print("\n" + "=" * 70)
+        print("QUERYING DOB APIs BY BBL (FALLBACK)")
+        print("=" * 70)
+        print(f"Searching {len(bbl_tuples)} BBLs that don't have BIN matches...")
+
+        dob_filings_bbl = query_dob_api(DOB_JOB_APPLICATIONS_URL, bbl_tuples, job_type="NB", search_type="bbl")
+        dob_now_filings_bbl = query_dob_api(DOB_NOW_JOB_APPLICATIONS_URL, bbl_tuples, job_type="New Building", search_type="bbl")
+
+        # Combine BBL results with BIN results
+        if not dob_filings_bbl.empty:
+            dob_filings = pd.concat([dob_filings, dob_filings_bbl], ignore_index=True)
+        if not dob_now_filings_bbl.empty:
+            dob_now_filings = pd.concat([dob_now_filings, dob_now_filings_bbl], ignore_index=True)
     
     # Combine results
     print("\n" + "=" * 70)
@@ -234,5 +319,5 @@ if __name__ == "__main__":
         print(f"Error: File '{bin_file}' not found.")
         sys.exit(1)
     
-    query_dob_filings(bin_file)
+    query_dob_filings(bin_file, use_bbl_fallback=True)
 
