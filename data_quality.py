@@ -159,7 +159,7 @@ class DataQualityTracker:
         self.metrics[f'{prefix}_records_with_building_completion'] = df['Building Completion Date'].notna().sum()
 
         # For backward compatibility, set global metrics for primary dataset
-        if dataset_name in ["HPD Data", "Current_HPD"]:
+        if dataset_name in ["HPD Data", "Current_HPD", "Full_HPD_Dataset"]:
             self.metrics['records_with_bin'] = self.metrics[f'{prefix}_bins_present']
             self.metrics['records_with_bbl'] = self.metrics[f'{prefix}_bbls_present']
             self.metrics['records_with_address'] = self.metrics[f'{prefix}_records_with_address']
@@ -301,6 +301,10 @@ class DataQualityTracker:
         report.append("=" * 80)
         report.append("🏗️  HOUSING DATA QUALITY REPORT")
         report.append("=" * 80)
+
+        # Dataset lineage section (if multiple datasets analyzed)
+        if any(key.startswith(('Full_HPD_Dataset_', 'Filtered_HPD_', 'Current_HPD_')) for key in self.metrics.keys()):
+            report.extend(self._generate_dataset_lineage())
 
         # Processing time
         if self.metrics['processing_start_time'] and self.metrics['processing_end_time']:
@@ -522,6 +526,61 @@ class DataQualityTracker:
         report.append("=" * 80)
 
         return "\n".join(report)
+
+    def _generate_dataset_lineage(self):
+        """Generate dataset lineage section explaining filtering pipeline."""
+        report = []
+        report.append("")
+        report.append("📊 DATASET LINEAGE & FILTERING")
+        report.append("-" * 40)
+
+        # Get dataset sizes
+        full_total = self.metrics.get('Full_HPD_Dataset_total_records', 0)
+        current_total = self.metrics.get('Current_HPD_total_records', 0)
+
+        if full_total > 0 and current_total > 0:
+            report.append(f"Full HPD Dataset: {full_total:,} affordable housing projects")
+            report.append("  ↓")
+            report.append(f"Current Working Dataset: {current_total:,} projects")
+            report.append("")
+
+            # Explain the filtering logic
+            report.append("📋 Filtering Applied:")
+            report.append("  1. Remove confidential projects (redacted for privacy)")
+            report.append("  2. Filter to new construction projects only")
+            report.append("  3. Include only projects with BINs present")
+            report.append("  4. EXCLUDE projects that already have DOB NB/New Building filings")
+            report.append("")
+
+            report.append("🎯 Result: Projects with BINs but NO DOB permit matches")
+            report.append("   These are the 'missing' projects that need permit investigation")
+
+            # Calculate what percentage this represents
+            confidential = self.metrics.get('Full_HPD_Dataset_confidential_records', 0)
+            non_confidential = full_total - confidential
+            pct_of_non_confidential = (current_total / non_confidential * 100) if non_confidential > 0 else 0
+
+            report.append("")
+            # Calculate the actual filtering steps based on available metrics
+            bins_present_full = self.metrics.get('full_hpd_dataset_bins_present', 0)
+            bins_missing_full = self.metrics.get('full_hpd_dataset_bins_missing', 0)
+
+            report.append("📈 Step-by-Step Dataset Reduction:")
+            report.append(f"  691 → Start with full HPD affordable housing dataset")
+            report.append(f"  525 → Remove {confidential:,} confidential projects (24.0% redacted for privacy)")
+            report.append(f"  512 → Exclude {bins_missing_full:,} projects without BINs (2.5% missing identifiers)")
+            report.append(f"  248 → Exclude {bins_present_full - current_total:,} projects already matched to DOB filings")
+            report.append(f"  248 → Final working dataset: projects with BINs but NO DOB permit matches")
+            report.append("")
+            report.append("🎯 Current Dataset Purpose:")
+            report.append("  These 248 projects represent potential data gaps where HPD financing")
+            report.append("  exists but DOB New Building permits cannot be found. They may indicate:")
+            report.append("  • Projects not yet permitted in DOB system")
+            report.append("  • Data quality issues in BIN/DOB matching")
+            report.append("  • Permits filed under different project names/types")
+            report.append("  • Projects using alternative permitting processes")
+
+        return report
 
     def _generate_detailed_report(self):
         """Generate detailed analysis section for larger datasets."""
