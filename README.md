@@ -5,7 +5,7 @@ This repository contains scripts and data for analyzing affordable housing produ
 ## Files
 
 ### Data Files
-- `Affordable_Housing_Production_by_Building.csv` - HPD data on affordable housing buildings
+- `data/raw/Affordable_Housing_Production_by_Building.csv` - HPD data on affordable housing buildings
 - `Affordable_Housing_Production_by_Building_with_financing.csv` - HPD data with financing type classification (HPD vs Private)
 - `new_construction_bins_dob_filings.csv` - DOB job application filings for new construction (NB/New Building type)
 - `all_construction_bins_co_filings.csv` - Certificate of Occupancy data from DOB APIs
@@ -48,7 +48,7 @@ Queries Local Law 44 funding database to classify projects by financing type.
 
 **Usage:**
 ```bash
-python query_ll44_funding.py Affordable_Housing_Production_by_Building.csv
+python query_ll44_funding.py data/raw/Affordable_Housing_Production_by_Building.csv
 ```
 
 #### `HPD_DOB_Join_On_BIN.py`
@@ -60,7 +60,7 @@ Creates a timeline combining HPD financing data with DOB filing/approval dates a
 
 **Usage:**
 ```bash
-python HPD_DOB_Join_On_BIN.py Affordable_Housing_Production_by_Building.csv new_construction_bins_dob_filings.csv [co_filings.csv]
+python HPD_DOB_Join_On_BIN.py data/raw/Affordable_Housing_Production_by_Building.csv new_construction_bins_dob_filings.csv [co_filings.csv]
 ```
 
 **Output:**
@@ -96,7 +96,7 @@ pip install pandas matplotlib requests beautifulsoup4
 
 ## Workflow
 
-1. Extract BINs for new construction projects from `Affordable_Housing_Production_by_Building.csv`
+1. Extract BINs for new construction projects from `data/raw/Affordable_Housing_Production_by_Building.csv`
 2. Query LL44 funding database to classify projects by financing type using `query_ll44_funding.py`
 3. Query DOB APIs for NB/New Building filings using `query_dob_filings.py` (includes BBL fallback for missing BINs)
 4. Query CO APIs for Certificate of Occupancy data using `query_co_filings.py`

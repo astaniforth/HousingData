@@ -199,7 +199,7 @@ def create_timeline(building_csv, filings_csv, co_filings_csv=None, output_path=
     quality_tracker.analyze_hpd_data(df_buildings, dataset_name)
 
     # Also analyze the full HPD dataset if available and different
-    full_hpd_path = "Affordable_Housing_Production_by_Building.csv"
+    full_hpd_path = "data/raw/Affordable_Housing_Production_by_Building.csv"
     if os.path.exists(full_hpd_path) and building_csv != full_hpd_path:
         print(f"\nReading full HPD dataset for comprehensive analysis: {full_hpd_path}")
         try:

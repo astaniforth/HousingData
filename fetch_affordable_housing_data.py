@@ -162,12 +162,18 @@ def fetch_affordable_housing_data(limit=50000, output_file=None):
 
 def update_local_data():
     """Update the local affordable housing data file with fresh API data."""
-    output_file = "Affordable_Housing_Production_by_Building.csv"
-    backup_file = f"{output_file}.backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    from pathlib import Path
+
+    # Create data/raw directory if it doesn't exist
+    data_dir = Path('data/raw')
+    data_dir.mkdir(parents=True, exist_ok=True)
+
+    output_file = data_dir / "Affordable_Housing_Production_by_Building.csv"
+    backup_file = output_file.with_suffix('.csv.backup_' + datetime.now().strftime('%Y%m%d_%H%M%S'))
 
     # Create backup of existing file
-    if os.path.exists(output_file):
-        os.rename(output_file, backup_file)
+    if output_file.exists():
+        output_file.rename(backup_file)
         print(f"Created backup: {backup_file}")
 
     # Fetch fresh data

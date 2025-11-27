@@ -148,7 +148,7 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         hpd_csv = sys.argv[1]
     else:
-        hpd_csv = 'Affordable_Housing_Production_by_Building.csv'
+        hpd_csv = 'data/raw/Affordable_Housing_Production_by_Building.csv'
 
     if not os.path.exists(hpd_csv):
         print(f"Error: HPD CSV '{hpd_csv}' not found.")
