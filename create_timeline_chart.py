@@ -287,19 +287,39 @@ def create_timeline_chart(timeline_csv, output_path=None):
     
     return complete_timelines
 
+def create_financing_charts():
+    """Create separate charts for HPD financed and privately financed projects."""
+
+    hpd_timeline = 'Affordable_Housing_Production_by_Building_with_financing_hpd_financed_timeline.csv'
+    private_timeline = 'Affordable_Housing_Production_by_Building_with_financing_privately_financed_timeline.csv'
+
+    # Create HPD financed chart
+    if os.path.exists(hpd_timeline):
+        print("=" * 80)
+        print("CREATING HPD FINANCED PROJECTS CHART")
+        print("=" * 80)
+        create_timeline_chart(hpd_timeline)
+    else:
+        print(f"HPD financed timeline not found: {hpd_timeline}")
+
+    # Create privately financed chart
+    if os.path.exists(private_timeline):
+        print("\n" + "=" * 80)
+        print("CREATING PRIVATELY FINANCED PROJECTS CHART")
+        print("=" * 80)
+        create_timeline_chart(private_timeline)
+    else:
+        print(f"Privately financed timeline not found: {private_timeline}")
+
 if __name__ == "__main__":
     if len(sys.argv) > 1:
+        # If specific timeline file provided, create single chart
         timeline_csv = sys.argv[1]
-    else:
-        timeline_csv = 'Affordable_Housing_Production_by_Building_timeline.csv'
         if not os.path.exists(timeline_csv):
-            print("Please provide the path to the timeline CSV file:")
-            print("Usage: python create_timeline_chart.py <timeline_csv>")
+            print(f"Error: File '{timeline_csv}' not found.")
             sys.exit(1)
-    
-    if not os.path.exists(timeline_csv):
-        print(f"Error: File '{timeline_csv}' not found.")
-        sys.exit(1)
-    
-    create_timeline_chart(timeline_csv)
+        create_timeline_chart(timeline_csv)
+    else:
+        # Create both financing type charts
+        create_financing_charts()
 

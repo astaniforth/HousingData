@@ -174,12 +174,29 @@ def process_co_filings(df_co_filings, buildings_by_bin):
                 'additional_info': f"Job: {job_num}, Status: {co_status}, Type: {co_type}"
             })
 
-def create_timeline(building_csv, filings_csv, co_filings_csv=None, output_path=None):
-    """Create a timeline showing HPD financing dates, DOB filing/approval dates, and CO dates."""
+def create_timeline(building_csv, filings_csv, co_filings_csv=None, output_path=None, financing_filter=None):
+    """
+    Create a timeline showing HPD financing dates, DOB filing/approval dates, and CO dates.
+
+    Args:
+        building_csv: Path to HPD building data CSV
+        filings_csv: Path to DOB filings CSV
+        co_filings_csv: Path to CO filings CSV (optional)
+        output_path: Path to save output CSV (optional)
+        financing_filter: Filter by financing type ('HPD Financed', 'Privately Financed', or None for all)
+    """
 
     print(f"Reading building data (HPD) from: {building_csv}...")
     df_buildings = pd.read_csv(building_csv)
-    print(f"Total buildings: {len(df_buildings):,}\n")
+    print(f"Total buildings: {len(df_buildings):,}")
+
+    # Apply financing filter if specified
+    if financing_filter:
+        print(f"Filtering to {financing_filter} projects...")
+        df_buildings = df_buildings[df_buildings['Financing Type'] == financing_filter]
+        print(f"Buildings after filtering: {len(df_buildings):,}\n")
+    else:
+        print("Including all financing types\n")
 
     print(f"Reading DOB filings from: {filings_csv}...")
     df_filings = pd.read_csv(filings_csv)
@@ -292,8 +309,36 @@ def create_timeline(building_csv, filings_csv, co_filings_csv=None, output_path=
     
     return df_timeline_output
 
+def create_separate_timelines(building_csv, filings_csv, co_filings_csv=None):
+    """Create separate timelines for HPD financed and privately financed projects."""
+
+    # Check if building_csv has financing type column
+    df_buildings = pd.read_csv(building_csv)
+    if 'Financing Type' not in df_buildings.columns:
+        print("Warning: 'Financing Type' column not found in building data.")
+        print("Please run query_ll44_funding.py first to add financing type information.")
+        # Fall back to creating single timeline
+        create_timeline(building_csv, filings_csv, co_filings_csv, financing_filter=None)
+        return
+
+    # Create HPD financed timeline
+    print("=" * 80)
+    print("CREATING HPD FINANCED PROJECTS TIMELINE")
+    print("=" * 80)
+    hpd_output = building_csv.replace('.csv', '_hpd_financed_timeline.csv')
+    create_timeline(building_csv, filings_csv, co_filings_csv,
+                   output_path=hpd_output, financing_filter='HPD Financed')
+
+    # Create privately financed timeline
+    print("\n" + "=" * 80)
+    print("CREATING PRIVATELY FINANCED PROJECTS TIMELINE")
+    print("=" * 80)
+    private_output = building_csv.replace('.csv', '_privately_financed_timeline.csv')
+    create_timeline(building_csv, filings_csv, co_filings_csv,
+                   output_path=private_output, financing_filter='Privately Financed')
+
 if __name__ == "__main__":
-    building_csv = sys.argv[1] if len(sys.argv) > 1 else 'Affordable_Housing_Production_by_Building.csv'
+    building_csv = sys.argv[1] if len(sys.argv) > 1 else 'Affordable_Housing_Production_by_Building_with_financing.csv'
     filings_csv = sys.argv[2] if len(sys.argv) > 2 else 'new_construction_bins_dob_filings.csv'
     co_filings_csv = sys.argv[3] if len(sys.argv) > 3 else None
 
@@ -306,4 +351,4 @@ if __name__ == "__main__":
         print(f"Error: Filings CSV '{filings_csv}' not found.")
         sys.exit(1)
 
-    create_timeline(building_csv, filings_csv, co_filings_csv)
+    create_separate_timelines(building_csv, filings_csv, co_filings_csv)
