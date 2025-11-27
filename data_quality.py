@@ -111,37 +111,62 @@ class DataQualityTracker:
         if dataset_name == "HPD Data" or dataset_name == "Current_HPD":
             self.metrics['total_records'] = len(df)
 
-        # Dataset-specific data completeness
+        # Identify confidential records (marked as CONFIDENTIAL)
+        confidential_mask = df['Project Name'].str.contains('CONFIDENTIAL', case=False, na=False)
+        self.metrics[f'{dataset_name}_confidential_records'] = confidential_mask.sum()
+
+        # Dataset-specific data completeness (excluding confidential records for accuracy)
         prefix = dataset_name.lower().replace(' ', '_')
-        self.metrics[f'{prefix}_records_with_bin'] = df['BIN'].notna().sum()
-        self.metrics[f'{prefix}_records_with_bbl'] = df['BBL'].notna().sum()
+
+        # For BINs/BBLs: distinguish between confidential, missing, and present
+        total_non_confidential = len(df) - confidential_mask.sum()
+
+        bins_present = df['BIN'].notna()
+        bbls_present = df['BBL'].notna()
+
+        # Confidential records (don't have BINs/BBLs by design)
+        self.metrics[f'{prefix}_bins_confidential'] = (confidential_mask & df['BIN'].isna()).sum()
+        self.metrics[f'{prefix}_bbls_confidential'] = (confidential_mask & df['BBL'].isna()).sum()
+
+        # Truly missing BINs/BBLs (non-confidential records without data)
+        self.metrics[f'{prefix}_bins_missing'] = (~confidential_mask & df['BIN'].isna()).sum()
+        self.metrics[f'{prefix}_bbls_missing'] = (~confidential_mask & df['BBL'].isna()).sum()
+
+        # Present BINs/BBLs
+        self.metrics[f'{prefix}_bins_present'] = bins_present.sum()
+        self.metrics[f'{prefix}_bbls_present'] = bbls_present.sum()
+
+        # Overall completeness percentages (excluding confidential)
+        if total_non_confidential > 0:
+            self.metrics[f'{prefix}_bin_completeness_pct'] = (bins_present.sum() / total_non_confidential) * 100
+            self.metrics[f'{prefix}_bbl_completeness_pct'] = (bbls_present.sum() / total_non_confidential) * 100
+
+        # Address and date completeness
         self.metrics[f'{prefix}_records_with_address'] = (
             df['Number'].notna() & df['Street'].notna()
         ).sum()
-        self.metrics[f'{prefix}_records_with_project_dates'] = (
+
+        # Individual date field completeness
+        self.metrics[f'{prefix}_records_with_start_date'] = df['Project Start Date'].notna().sum()
+        self.metrics[f'{prefix}_records_with_completion_date'] = df['Project Completion Date'].notna().sum()
+
+        # Combined date completeness (both dates present)
+        self.metrics[f'{prefix}_records_with_both_dates'] = (
             df['Project Start Date'].notna() & df['Project Completion Date'].notna()
         ).sum()
 
-        # Dataset-specific missing data counts
-        self.metrics[f'{prefix}_missing_bins'] = df['BIN'].isna().sum()
-        self.metrics[f'{prefix}_missing_bbls'] = df['BBL'].isna().sum()
-        self.metrics[f'{prefix}_missing_addresses'] = (
-            df['Number'].isna() | df['Street'].isna()
-        ).sum()
-        self.metrics[f'{prefix}_missing_start_dates'] = df['Project Start Date'].isna().sum()
-        self.metrics[f'{prefix}_missing_completion_dates'] = df['Project Completion Date'].isna().sum()
+        # Building completion date
+        self.metrics[f'{prefix}_records_with_building_completion'] = df['Building Completion Date'].notna().sum()
 
-        # For backward compatibility, also set global metrics for primary dataset
+        # For backward compatibility, set global metrics for primary dataset
         if dataset_name in ["HPD Data", "Current_HPD"]:
-            self.metrics['records_with_bin'] = self.metrics[f'{prefix}_records_with_bin']
-            self.metrics['records_with_bbl'] = self.metrics[f'{prefix}_records_with_bbl']
+            self.metrics['records_with_bin'] = self.metrics[f'{prefix}_bins_present']
+            self.metrics['records_with_bbl'] = self.metrics[f'{prefix}_bbls_present']
             self.metrics['records_with_address'] = self.metrics[f'{prefix}_records_with_address']
-            self.metrics['records_with_project_dates'] = self.metrics[f'{prefix}_records_with_project_dates']
-            self.metrics['missing_bins'] = self.metrics[f'{prefix}_missing_bins']
-            self.metrics['missing_bbls'] = self.metrics[f'{prefix}_missing_bbls']
-            self.metrics['missing_addresses'] = self.metrics[f'{prefix}_missing_addresses']
-            self.metrics['missing_start_dates'] = self.metrics[f'{prefix}_missing_start_dates']
-            self.metrics['missing_completion_dates'] = self.metrics[f'{prefix}_missing_completion_dates']
+            self.metrics['records_with_project_dates'] = self.metrics[f'{prefix}_records_with_both_dates']
+            self.metrics['missing_bins'] = self.metrics[f'{prefix}_bins_missing']
+            self.metrics['missing_bbls'] = self.metrics[f'{prefix}_bbls_missing']
+
 
         # BBL-borough consistency
         for idx, row in df.iterrows():
@@ -289,12 +314,12 @@ class DataQualityTracker:
 
         # Show multiple datasets if available
         datasets = []
-        if 'Full_HPD_Dataset_total_records' in self.metrics:
-            datasets.append(('Full HPD Dataset', 'Full_HPD_Dataset'))
-        if 'Filtered_HPD_total_records' in self.metrics:
-            datasets.append(('Filtered Dataset', 'Filtered_HPD'))
-        elif 'Current_HPD_total_records' in self.metrics:
-            datasets.append(('Current Dataset', 'Current_HPD'))
+        # Check for datasets (try different capitalizations)
+        for prefix in ['Full_HPD_Dataset', 'Filtered_HPD', 'Current_HPD']:
+            key = f'{prefix}_total_records'
+            if key in self.metrics:
+                label = prefix.replace('_', ' ').title()
+                datasets.append((label, prefix))
 
         if not datasets:
             datasets.append(('Dataset', ''))
@@ -311,40 +336,95 @@ class DataQualityTracker:
             total = self.metrics[total_key]
             report.append(f"{dataset_label}: {total:,} records")
 
-            # Use dataset-specific keys (try both title case and lowercase)
+            # Use dataset-specific keys
             def get_dataset_key(base_key, dataset_prefix):
                 if not dataset_prefix:
                     return base_key
 
-                # Try title case first
-                title_key = f'{dataset_prefix}_{base_key}'
-                if title_key in self.metrics:
-                    return title_key
+                # Try exact match first
+                key = f'{dataset_prefix}_{base_key}'
+                if key in self.metrics:
+                    return key
 
-                # Try lowercase
+                # Try lowercase version
                 lower_key = f'{dataset_prefix.lower()}_{base_key}'
                 if lower_key in self.metrics:
                     return lower_key
 
                 return base_key
 
-            completeness_metrics = [
-                ('BINs Present', 'records_with_bin', 'missing_bins'),
-                ('BBLs Present', 'records_with_bbl', 'missing_bbls'),
-                ('Addresses Complete', 'records_with_address', 'missing_addresses'),
-                ('Project Dates Complete', 'records_with_project_dates', None),
-            ]
+            # Enhanced completeness reporting with confidential distinction
+            report.append(f"  📋 Breakdown:")
 
-            for label, present_key, missing_key in completeness_metrics:
-                present_key_full = get_dataset_key(present_key, prefix)
-                present = self.metrics.get(present_key_full, 0)
-                pct = (present / total * 100) if total > 0 else 0
-                report.append(f"  {label}: {present:,} ({pct:.1f}%)")
-                if missing_key:
-                    missing_key_full = get_dataset_key(missing_key, prefix)
-                    missing = self.metrics.get(missing_key_full, 0)
-                    if missing > 0:
-                        report.append(f"    Missing: {missing:,}")
+            # Confidential records
+            confidential_key = f"{prefix}_confidential_records"
+            confidential_count = self.metrics.get(confidential_key, 0)
+            if confidential_count > 0:
+                confidential_pct = (confidential_count / total * 100) if total > 0 else 0
+                report.append(f"    Confidential: {confidential_count:,} ({confidential_pct:.1f}%)")
+
+            # BIN/BBL completeness with confidential distinction
+            non_confidential = total - confidential_count
+
+            bins_present_key = get_dataset_key("bins_present", prefix)
+            bins_confidential_key = get_dataset_key("bins_confidential", prefix)
+            bins_missing_key = get_dataset_key("bins_missing", prefix)
+
+            bins_present = self.metrics.get(bins_present_key, 0)
+            bins_confidential = self.metrics.get(bins_confidential_key, 0)
+            bins_missing = self.metrics.get(bins_missing_key, 0)
+
+            if non_confidential > 0:
+                bin_completeness = (bins_present / non_confidential * 100)
+                report.append(f"    BINs: {bins_present:,}/{non_confidential:,} ({bin_completeness:.1f}%)")
+                if bins_confidential > 0:
+                    report.append(f"      Confidential: {bins_confidential:,}")
+                if bins_missing > 0:
+                    report.append(f"      Missing: {bins_missing:,}")
+
+            bbls_present_key = get_dataset_key("bbls_present", prefix)
+            bbls_confidential_key = get_dataset_key("bbls_confidential", prefix)
+            bbls_missing_key = get_dataset_key("bbls_missing", prefix)
+
+            bbls_present = self.metrics.get(bbls_present_key, 0)
+            bbls_confidential = self.metrics.get(bbls_confidential_key, 0)
+            bbls_missing = self.metrics.get(bbls_missing_key, 0)
+
+            if non_confidential > 0:
+                bbl_completeness = (bbls_present / non_confidential * 100)
+                report.append(f"    BBLs: {bbls_present:,}/{non_confidential:,} ({bbl_completeness:.1f}%)")
+                if bbls_confidential > 0:
+                    report.append(f"      Confidential: {bbls_confidential:,}")
+                if bbls_missing > 0:
+                    report.append(f"      Missing: {bbls_missing:,}")
+
+            # Address completeness
+            address_key = get_dataset_key("records_with_address", prefix)
+            addresses_complete = self.metrics.get(address_key, 0)
+            address_pct = (addresses_complete / total * 100) if total > 0 else 0
+            report.append(f"    Addresses: {addresses_complete:,}/{total:,} ({address_pct:.1f}%)")
+
+            # Date completeness breakdown
+            start_dates_key = get_dataset_key("records_with_start_date", prefix)
+            completion_dates_key = get_dataset_key("records_with_completion_date", prefix)
+            both_dates_key = get_dataset_key("records_with_both_dates", prefix)
+            building_completion_key = get_dataset_key("records_with_building_completion", prefix)
+
+            start_dates = self.metrics.get(start_dates_key, 0)
+            completion_dates = self.metrics.get(completion_dates_key, 0)
+            both_dates = self.metrics.get(both_dates_key, 0)
+            building_completion = self.metrics.get(building_completion_key, 0)
+
+            start_pct = (start_dates / total * 100) if total > 0 else 0
+            completion_pct = (completion_dates / total * 100) if total > 0 else 0
+            both_pct = (both_dates / total * 100) if total > 0 else 0
+            building_pct = (building_completion / total * 100) if total > 0 else 0
+
+            report.append(f"    Project Start Dates: {start_dates:,}/{total:,} ({start_pct:.1f}%)")
+            report.append(f"    Project Completion Dates: {completion_dates:,}/{total:,} ({completion_pct:.1f}%)")
+            report.append(f"    Both Project Dates: {both_dates:,}/{total:,} ({both_pct:.1f}%)")
+            report.append(f"    Building Completion Dates: {building_completion:,}/{total:,} ({building_pct:.1f}%)")
+
             report.append("")
 
         report.append("")
@@ -461,6 +541,20 @@ class DataQualityTracker:
                     report.append(f"  {borough}: {count:,} ({pct:.1f}%)")
                 report.append("")
                 break  # Only show one borough distribution
+
+        # Confidential records analysis
+        confidential_keys = [k for k in self.metrics.keys() if 'confidential_records' in k and self.metrics[k] > 0]
+        if confidential_keys:
+            for key in confidential_keys:
+                dataset_name = key.replace('_confidential_records', '').replace('_', ' ').title()
+                confidential_count = self.metrics[key]
+                total_records = self.metrics.get(key.replace('confidential_records', 'total_records'), 0)
+                if total_records > 0:
+                    confidential_pct = (confidential_count / total_records * 100)
+                    report.append(f"🔒 {dataset_name} Confidentiality:")
+                    report.append(f"  Confidential Records: {confidential_count:,} ({confidential_pct:.1f}%)")
+                    report.append(f"  Public Records: {total_records - confidential_count:,} ({100 - confidential_pct:.1f}%)")
+                    report.append("")
 
         # Construction type distribution
         construction_key = 'HPD Data_construction_type_distribution'
