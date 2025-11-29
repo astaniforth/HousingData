@@ -259,7 +259,7 @@ def verify_and_fetch_ll44_data(use_existing=True):
     Returns:
         tuple: (pandas.DataFrame, pathlib.Path) - The LL44 data and file path used
     """
-    cache_file = Path(LL44_CACHE_FILE)
+    cache_file = Path(LL44_FUNDING_CACHE_FILE)
     cache_file.parent.mkdir(parents=True, exist_ok=True)
 
     print("=" * 70)
@@ -277,7 +277,7 @@ def verify_and_fetch_ll44_data(use_existing=True):
 
     # Check file age
     file_age = datetime.now() - datetime.fromtimestamp(cache_file.stat().st_mtime)
-    is_recent = file_age < timedelta(hours=LL44_CACHE_MAX_AGE_HOURS)
+    is_recent = file_age < timedelta(hours=LL44_FUNDING_CACHE_MAX_AGE_HOURS)
 
     if is_recent and use_existing:
         print(f"Found recent LL44 cache file: {cache_file}")
