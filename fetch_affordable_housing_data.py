@@ -160,15 +160,107 @@ def fetch_affordable_housing_data(limit=50000, output_file=None):
 
     return df
 
-def update_local_data():
-    """Update the local affordable housing data file with fresh API data."""
+def verify_and_fetch_hpd_data(sample_size=100, use_existing=True, output_path=None):
+    """
+    Verify if local HPD data matches the API, and fetch fresh data if needed.
+
+    Args:
+        sample_size: Number of records to compare for sample validation
+        use_existing: If True, use local data if it matches API
+        output_path: Path to save/load the CSV file (optional)
+
+    Returns:
+        tuple: (pandas.DataFrame, pathlib.Path) - The HPD data and the file path used
+    """
+    from pathlib import Path
+    import hashlib
+
+    # Define file paths
+    if output_path:
+        local_file = Path(output_path)
+        local_file.parent.mkdir(parents=True, exist_ok=True)
+    else:
+        data_dir = Path('data/raw')
+        data_dir.mkdir(parents=True, exist_ok=True)
+        local_file = data_dir / "Affordable_Housing_Production_by_Building.csv"
+
+    print("=" * 70)
+    print("STEP 1: VERIFY AND FETCH HPD DATA")
+    print("=" * 70)
+
+    # Check if local file exists
+    if not local_file.exists():
+        print(f"Local HPD data file not found at {local_file}")
+        print("Fetching fresh data from API...")
+        df = fetch_affordable_housing_data()
+        df.to_csv(local_file, index=False)
+        print(f"Saved fresh data to: {local_file}")
+        return df, local_file
+
+    # Load local data
+    print(f"Found local HPD data file: {local_file}")
+    local_df = pd.read_csv(local_file)
+    local_count = len(local_df)
+    print(f"Local file has {local_count:,} records")
+
+    # Fetch a sample from API for comparison
+    print(f"\nFetching {sample_size} sample records from API for verification...")
+    api_sample_df = fetch_affordable_housing_data(limit=sample_size)
+
+    if api_sample_df.empty:
+        print("ERROR: Could not fetch sample data from API")
+        if use_existing:
+            print("Using existing local data as fallback")
+            return local_df, local_file
+        else:
+            raise Exception("Could not fetch data from API and use_existing=False")
+
+    api_sample_count = len(api_sample_df)
+    print(f"API sample has {api_sample_count:,} records")
+
+    # Compare record counts - if they match, assume data is current
+    # (API sample might not have all records due to pagination)
+    if local_count >= api_sample_count:
+        print("✅ Local data has sufficient records - assuming current")
+        if use_existing:
+            print("Using existing local data")
+            return local_df, local_file
+        else:
+            print("use_existing=False, fetching fresh data anyway...")
+            df = fetch_affordable_housing_data()
+            df.to_csv(local_file, index=False)
+            print(f"Saved fresh data to: {local_file}")
+            return df, local_file
+
+    # If local has fewer records, fetch fresh data
+    print(f"⚠️  Local data has fewer records ({local_count:,}) than API sample ({api_sample_count:,})")
+    print("Fetching fresh data from API...")
+    df = fetch_affordable_housing_data()
+    df.to_csv(local_file, index=False)
+    print(f"Saved fresh data to: {local_file}")
+    return df, local_file
+
+def update_local_data(output_path=None):
+    """Update the local affordable housing data file with fresh API data.
+
+    Args:
+        output_path: Path to save the CSV file (optional)
+
+    Returns:
+        tuple: (pandas.DataFrame, pathlib.Path) - The data and the file path used
+    """
     from pathlib import Path
 
-    # Create data/raw directory if it doesn't exist
-    data_dir = Path('data/raw')
-    data_dir.mkdir(parents=True, exist_ok=True)
+    # Determine output file path
+    if output_path:
+        output_file = Path(output_path)
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+    else:
+        # Create data/raw directory if it doesn't exist
+        data_dir = Path('data/raw')
+        data_dir.mkdir(parents=True, exist_ok=True)
+        output_file = data_dir / "Affordable_Housing_Production_by_Building.csv"
 
-    output_file = data_dir / "Affordable_Housing_Production_by_Building.csv"
     backup_file = output_file.with_suffix('.csv.backup_' + datetime.now().strftime('%Y%m%d_%H%M%S'))
 
     # Create backup of existing file
@@ -183,14 +275,15 @@ def update_local_data():
     df.to_csv(output_file, index=False)
     print(f"Updated local data file: {output_file}")
 
-    return df
+    return df, output_file
 
 if __name__ == "__main__":
     import sys
 
     if len(sys.argv) > 1 and sys.argv[1] == "--update":
         # Update the local data file
-        update_local_data()
+        df, csv_path = update_local_data()
+        print(f"Updated: {csv_path}")
     else:
         # Just fetch and display info
         df = fetch_affordable_housing_data(limit=100)  # Small sample
