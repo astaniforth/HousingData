@@ -12,9 +12,169 @@ import pandas as pd
 import numpy as np
 import time
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
+from pathlib import Path
 
-def fetch_affordable_housing_data(limit=50000, output_file=None):
+# HPD Projects data (program group information)
+HPD_PROJECTS_URL = "https://data.cityofnewyork.us/resource/hq68-rnsi.json"
+HPD_PROJECTS_CACHE_FILE = "data/raw/hpd_projects_data.csv"
+HPD_PROJECTS_CACHE_MAX_AGE_HOURS = 24  # Consider cache valid for 24 hours
+
+def fetch_hpd_projects_data(limit=50000):
+    """
+    Fetch HPD Projects data from NYC Open Data API.
+    This contains project-level information including program_group.
+
+    Args:
+        limit: Maximum number of records to retrieve
+
+    Returns:
+        pandas.DataFrame: Complete HPD projects data
+    """
+    print(f"Fetching HPD Projects data from NYC Open Data API...")
+    print(f"Endpoint: {HPD_PROJECTS_URL}")
+
+    all_records = []
+    offset = 0
+    batch_size = 1000  # Socrata default limit
+
+    while True:
+        params = {
+            '$limit': min(batch_size, limit - len(all_records)),
+            '$offset': offset,
+            '$order': 'project_id'  # Consistent ordering
+        }
+
+        try:
+            print(f"Fetching records {offset + 1}-{offset + params['$limit']}...")
+            response = requests.get(HPD_PROJECTS_URL, params=params, timeout=30)
+            response.raise_for_status()
+
+            batch_data = response.json()
+            if not batch_data:
+                break
+
+            all_records.extend(batch_data)
+            offset += len(batch_data)
+
+            print(f"  Retrieved {len(batch_data)} records (total: {len(all_records):,})")
+
+            # Stop if we've reached the limit
+            if len(all_records) >= limit:
+                break
+
+            # Rate limiting
+            time.sleep(0.2)
+
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching data: {e}")
+            break
+
+    print(f"\nCompleted! Retrieved {len(all_records):,} total records")
+
+    # Convert to DataFrame
+    df = pd.DataFrame(all_records)
+
+    # Clean up column names to match our expected format
+    column_mapping = {
+        'project_id': 'project_id',
+        'project_name': 'project_name',
+        'program_group': 'program_group',
+        'project_start_date': 'project_start_date',
+        'project_completion_date': 'project_completion_date',
+        'extended_affordability_status': 'extended_affordability_status',
+        'prevailing_wage_status': 'prevailing_wage_status',
+        'planned_tax_benefit': 'planned_tax_benefit',
+        'extremely_low_income_units': 'extremely_low_income_units',
+        'very_low_income': 'very_low_income_units',
+        'low_income_units': 'low_income_units',
+        'moderate_income': 'moderate_income_units',
+        'middle_income': 'middle_income_units',
+        'other': 'other_income_units',
+        'counted_rental_units': 'counted_rental_units',
+        'counted_homeownership_units': 'counted_homeownership_units',
+        'all_counted_units': 'all_counted_units',
+        'total_units': 'total_units',
+        'senior_units': 'senior_units'
+    }
+
+    df = df.rename(columns=column_mapping)
+
+    # Convert numeric fields
+    numeric_fields = [
+        'extremely_low_income_units', 'very_low_income_units', 'low_income_units',
+        'moderate_income_units', 'middle_income_units', 'other_income_units',
+        'counted_rental_units', 'counted_homeownership_units', 'all_counted_units',
+        'total_units', 'senior_units'
+    ]
+
+    for field in numeric_fields:
+        if field in df.columns:
+            df[field] = pd.to_numeric(df[field], errors='coerce')
+
+    # Convert project_id to string
+    if 'project_id' in df.columns:
+        df['project_id'] = df['project_id'].astype(str)
+
+    return df
+
+def verify_and_fetch_hpd_projects_data(use_existing=True):
+    """
+    Verify if local HPD projects data matches the API, and fetch fresh data if needed.
+
+    Args:
+        use_existing: If True, use local data if it exists and is recent
+
+    Returns:
+        tuple: (pandas.DataFrame, pathlib.Path) - The HPD projects data and file path used
+    """
+    cache_file = Path(HPD_PROJECTS_CACHE_FILE)
+    cache_file.parent.mkdir(parents=True, exist_ok=True)
+
+    print("=" * 70)
+    print("VERIFYING HPD PROJECTS CACHE")
+    print("=" * 70)
+
+    # Check if local file exists
+    if not cache_file.exists():
+        print(f"Local HPD projects cache file not found at {cache_file}")
+        print("Fetching fresh data from API...")
+        df = fetch_hpd_projects_data()
+        df.to_csv(cache_file, index=False)
+        print(f"Saved fresh data to: {cache_file}")
+        return df, cache_file
+
+    # Check file age
+    file_age = datetime.now() - datetime.fromtimestamp(cache_file.stat().st_mtime)
+    is_recent = file_age < timedelta(hours=HPD_PROJECTS_CACHE_MAX_AGE_HOURS)
+
+    if is_recent and use_existing:
+        print(f"Found recent HPD projects cache file: {cache_file}")
+        print(f"File age: {file_age}")
+        print("Using existing cached data")
+        df = pd.read_csv(cache_file, dtype={'project_id': str})
+        return df, cache_file
+    else:
+        print(f"HPD projects cache file is stale (age: {file_age}) or use_existing=False")
+        print("Fetching fresh data from API...")
+
+        # Create backup of existing file
+        backup_file = cache_file.with_suffix('.csv.backup_' + datetime.now().strftime('%Y%m%d_%H%M%S'))
+        cache_file.rename(backup_file)
+        print(f"Created backup: {backup_file}")
+
+        df = fetch_hpd_projects_data()
+        df.to_csv(cache_file, index=False)
+        print(f"Saved fresh data to: {cache_file}")
+        return df, cache_file
+
+def update_hpd_projects_cache():
+    """Force update the local HPD projects data cache."""
+    print("Force updating HPD projects cache...")
+    df, path = verify_and_fetch_hpd_projects_data(use_existing=False)
+    return df, path
+
+def fetch_affordable_housing_data(limit=50000, output_file=None, use_projects_cache=True):
     """
     Fetch affordable housing data from NYC Open Data API.
 
@@ -129,7 +289,10 @@ def fetch_affordable_housing_data(limit=50000, output_file=None):
         'Moderate Income Units', 'Middle Income Units', 'Other Income Units',
         'Studio Units', '1-BR Units', '2-BR Units', '3-BR Units', '4-BR Units',
         '5-BR Units', '6-BR+ Units', 'Unknown-BR Units', 'Counted Rental Units',
-        'Counted Homeownership Units', 'All Counted Units', 'Total Units'
+        'Counted Homeownership Units', 'All Counted Units', 'Total Units',
+        # Project-level columns (added via enrichment)
+        'project_program_group', 'project_extended_affordability_status',
+        'project_prevailing_wage_status', 'project_planned_tax_benefit'
     ]
 
     # Ensure all expected columns exist
@@ -164,6 +327,93 @@ def fetch_affordable_housing_data(limit=50000, output_file=None):
         if field in df.columns:
             df[field] = pd.to_numeric(df[field], errors='coerce')
 
+    # Enrich with project-level information (program_group, etc.)
+    print("\nEnriching building data with project-level information...")
+    try:
+        projects_df, _ = verify_and_fetch_hpd_projects_data(use_existing=use_projects_cache)
+        print(f"Loaded {len(projects_df)} project records")
+
+        # Merge on Project ID (ensure both are strings for proper matching)
+        df['Project ID'] = df['Project ID'].astype(str)
+        projects_df['project_id'] = projects_df['project_id'].astype(str)
+
+        # Select project-level columns to merge
+        project_cols_to_merge = [
+            'program_group', 'project_start_date', 'project_completion_date',
+            'extended_affordability_status', 'prevailing_wage_status', 'planned_tax_benefit'
+        ]
+
+        # Only merge columns that exist in the projects data
+        available_cols = [col for col in project_cols_to_merge if col in projects_df.columns]
+        projects_subset = projects_df[['project_id'] + available_cols].copy()
+
+        # Rename columns to avoid conflicts with existing HPD columns
+        rename_map = {}
+        for col in available_cols:
+            new_name = f'project_{col}'
+            # Avoid double "project_" prefix
+            if col.startswith('project_'):
+                new_name = col
+            rename_map[col] = new_name
+
+        if rename_map:
+            projects_subset = projects_subset.rename(columns=rename_map)
+            available_cols = list(rename_map.values())
+
+        # Debug: Check merge inputs
+        print(f"Merging on 'Project ID' (HPD) with 'project_id' (projects)")
+        print(f"HPD Project IDs sample: {df['Project ID'].head(3).tolist()}")
+        print(f"Projects project_ids sample: {projects_subset['project_id'].head(3).tolist()}")
+
+        # Merge building data with project data
+        original_count = len(df)
+        df = df.merge(projects_subset, left_on='Project ID', right_on='project_id', how='left')
+
+        # Clean up merge artifacts and rename columns
+        # Remove duplicate project_id column
+        if 'project_id' in df.columns:
+            df = df.drop('project_id', axis=1)
+
+        # Handle merge conflicts (_x/_y columns)
+        columns_to_drop = []
+        rename_map = {}
+
+        for col in df.columns:
+            if col.endswith('_x') and col[:-2] + '_y' in df.columns:
+                # Merge conflict: keep _y (projects data), rename to project_ prefix
+                base_name = col[:-2]
+                y_col = col[:-2] + '_y'
+                # Don't add 'project_' prefix if base_name already starts with it
+                new_name = base_name if base_name.startswith('project_') else f'project_{base_name}'
+                rename_map[y_col] = new_name
+                columns_to_drop.append(col)  # Drop the _x version
+
+        # Drop conflicting _x columns
+        for col in columns_to_drop:
+            if col in df.columns:
+                df = df.drop(col, axis=1)
+
+        # Rename _y columns to clean project_ names
+        if rename_map:
+            df = df.rename(columns=rename_map)
+
+        # Debug: Check merge results
+        project_cols = [col for col in df.columns if col.startswith('project_')]
+        if project_cols:
+            first_col = project_cols[0]
+            merged_programs = df[first_col].notna().sum()
+            print(f"Merge complete: {merged_programs} records got project data out of {len(df)}")
+            if merged_programs > 0:
+                print(f"Sample {first_col} values: {df[first_col].dropna().head(3).tolist()}")
+
+        merged_count = len(df)
+        print(f"Successfully enriched {merged_count} building records with project information")
+        print(f"Added columns: {available_cols}")
+
+    except Exception as e:
+        print(f"Warning: Could not enrich with project data: {e}")
+        print("Continuing with building-level data only")
+
     # Save to CSV if requested
     if output_file:
         df.to_csv(output_file, index=False)
@@ -171,7 +421,7 @@ def fetch_affordable_housing_data(limit=50000, output_file=None):
 
     return df
 
-def verify_and_fetch_hpd_data(sample_size=100, use_existing=True, output_path=None):
+def verify_and_fetch_hpd_data(sample_size=100, use_existing=True, output_path=None, use_projects_cache=True):
     """
     Verify if local HPD data matches the API, and fetch fresh data if needed.
 
@@ -179,6 +429,7 @@ def verify_and_fetch_hpd_data(sample_size=100, use_existing=True, output_path=No
         sample_size: Number of records to compare for sample validation
         use_existing: If True, use local data if it matches API
         output_path: Path to save/load the CSV file (optional)
+        use_projects_cache: Whether to use cached HPD projects data for enrichment
 
     Returns:
         tuple: (pandas.DataFrame, pathlib.Path) - The HPD data and the file path used
@@ -203,7 +454,7 @@ def verify_and_fetch_hpd_data(sample_size=100, use_existing=True, output_path=No
     if not local_file.exists():
         print(f"Local HPD data file not found at {local_file}")
         print("Fetching fresh data from API...")
-        df = fetch_affordable_housing_data()
+        df = fetch_affordable_housing_data(use_projects_cache=use_projects_cache)
         df.to_csv(local_file, index=False)
         print(f"Saved fresh data to: {local_file}")
         return df, local_file
@@ -229,7 +480,7 @@ def verify_and_fetch_hpd_data(sample_size=100, use_existing=True, output_path=No
 
     # Fetch a sample from API for comparison
     print(f"\nFetching {sample_size} sample records from API for verification...")
-    api_sample_df = fetch_affordable_housing_data(limit=sample_size)
+    api_sample_df = fetch_affordable_housing_data(limit=sample_size, use_projects_cache=False)  # Don't enrich sample
 
     if api_sample_df.empty:
         print("ERROR: Could not fetch sample data from API")
@@ -251,7 +502,7 @@ def verify_and_fetch_hpd_data(sample_size=100, use_existing=True, output_path=No
             return local_df, local_file
         else:
             print("use_existing=False, fetching fresh data anyway...")
-            df = fetch_affordable_housing_data()
+            df = fetch_affordable_housing_data(use_projects_cache=use_projects_cache)
             df.to_csv(local_file, index=False)
             print(f"Saved fresh data to: {local_file}")
             return df, local_file
@@ -259,7 +510,7 @@ def verify_and_fetch_hpd_data(sample_size=100, use_existing=True, output_path=No
     # If local has fewer records, fetch fresh data
     print(f"⚠️  Local data has fewer records ({local_count:,}) than API sample ({api_sample_count:,})")
     print("Fetching fresh data from API...")
-    df = fetch_affordable_housing_data()
+    df = fetch_affordable_housing_data(use_projects_cache=use_projects_cache)
     df.to_csv(local_file, index=False)
     print(f"Saved fresh data to: {local_file}")
     return df, local_file
