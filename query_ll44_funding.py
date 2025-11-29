@@ -399,7 +399,7 @@ def add_financing_type(hpd_df, ll44_funding_df, output_path=None):
     Returns:
         DataFrame with added financing type column
     """
-    print(f"Adding financing types to {len(hpd_df)} HPD projects...")
+    print(f"Adding financing types to {len(hpd_df)} HPD buildings...")
 
     # Get project IDs that have LL44 funding
     if not ll44_funding_df.empty:
@@ -473,7 +473,7 @@ def enrich_with_ll44_eligibility(hpd_df, use_cache=True):
     ll44_count = hpd_df['subject_to_ll44'].sum()
     total_count = len(hpd_df)
     print(f"LL44 eligibility enrichment complete:")
-    print(f"  Total HPD projects: {total_count:,}")
+    print(f"  Total HPD buildings: {total_count:,}")
     print(f"  Subject to LL44: {ll44_count:,} ({ll44_count/total_count*100:.1f}%)")
     print(f"  Not subject to LL44: {total_count - ll44_count:,} ({(total_count - ll44_count)/total_count*100:.1f}%)")
 
@@ -494,7 +494,7 @@ def query_and_add_financing(hpd_csv_path, output_path=None, use_cache=True, use_
     # Read HPD data
     print(f"Reading HPD data: {hpd_csv_path}")
     df_hpd = pd.read_csv(hpd_csv_path)
-    print(f"Loaded {len(df_hpd)} HPD projects")
+    print(f"Loaded {len(df_hpd)} HPD buildings")
 
     # Enrich with LL44 eligibility
     df_hpd = enrich_with_ll44_eligibility(df_hpd, use_cache=use_eligibility_cache)
