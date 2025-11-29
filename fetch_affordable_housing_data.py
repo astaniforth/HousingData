@@ -9,6 +9,7 @@ API Endpoint: https://data.cityofnewyork.us/resource/hg8x-zxpr.json
 
 import requests
 import pandas as pd
+import numpy as np
 import time
 import os
 from datetime import datetime
@@ -139,9 +140,19 @@ def fetch_affordable_housing_data(limit=50000, output_file=None):
     # Reorder columns to match expected format
     df = df[expected_columns]
 
-    # Convert numeric fields
-    numeric_fields = [
+    # Convert ID fields to strings (preserve leading zeros, handle NaN)
+    string_id_fields = [
         'Project ID', 'Building ID', 'Number', 'Postcode', 'BBL', 'BIN',
+        'Council District', 'Census Tract'
+    ]
+
+    for field in string_id_fields:
+        if field in df.columns:
+            # Convert to string, replace 'nan' with empty string, then replace empty with NaN
+            df[field] = df[field].astype(str).replace('nan', '').replace('', np.nan)
+
+    # Convert truly numeric fields (unit counts)
+    numeric_fields = [
         'Extremely Low Income Units', 'Very Low Income Units', 'Low Income Units',
         'Moderate Income Units', 'Middle Income Units', 'Other Income Units',
         'Studio Units', '1-BR Units', '2-BR Units', '3-BR Units', '4-BR Units',
@@ -199,7 +210,20 @@ def verify_and_fetch_hpd_data(sample_size=100, use_existing=True, output_path=No
 
     # Load local data
     print(f"Found local HPD data file: {local_file}")
-    local_df = pd.read_csv(local_file)
+
+    # Define dtypes for proper loading
+    dtype_spec = {
+        'Project ID': str,
+        'Building ID': str,
+        'Number': str,
+        'Postcode': str,
+        'BBL': str,
+        'BIN': str,
+        'Council District': str,
+        'Census Tract': str
+    }
+
+    local_df = pd.read_csv(local_file, dtype=dtype_spec)
     local_count = len(local_df)
     print(f"Local file has {local_count:,} records")
 
@@ -268,7 +292,7 @@ def update_local_data(output_path=None):
         output_file.rename(backup_file)
         print(f"Created backup: {backup_file}")
 
-    # Fetch fresh data
+    # Fetch fresh data (already has correct dtypes)
     df = fetch_affordable_housing_data()
 
     # Save as new file
