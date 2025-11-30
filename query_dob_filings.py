@@ -11,6 +11,61 @@ from data_quality import quality_tracker, validate_bbl_borough_consistency
 DOB_BISWEB_URL = "https://data.cityofnewyork.us/resource/ic3t-wcy2.json"
 DOB_NOW_URL = "https://data.cityofnewyork.us/resource/w9ak-ipjd.json"
 
+def pad_block(block):
+    """
+    Pad block to 5 digits with leading zeros.
+
+    Args:
+        block: Block value (string or numeric)
+
+    Returns:
+        str: 5-digit block with leading zeros
+    """
+    if pd.isna(block):
+        return None
+    block_str = str(int(float(block)))
+    return block_str.zfill(5)
+
+def pad_lot(lot):
+    """
+    Pad lot to 4 digits with leading zeros.
+
+    Args:
+        lot: Lot value (string or numeric)
+
+    Returns:
+        str: 4-digit lot with leading zeros
+    """
+    if pd.isna(lot):
+        return None
+    lot_str = str(int(float(lot)))
+    return lot_str.zfill(4)
+
+def create_bbl(borough_code, block, lot):
+    """
+    Create a properly formatted BBL from borough code, block, and lot.
+    Ensures proper padding of block and lot.
+
+    Args:
+        borough_code: Borough code (1-5)
+        block: Block number
+        lot: Lot number
+
+    Returns:
+        str: 10-digit BBL
+    """
+    if pd.isna(borough_code) or pd.isna(block) or pd.isna(lot):
+        return None
+
+    borough_str = str(int(borough_code))
+    block_str = pad_block(block)
+    lot_str = pad_lot(lot)
+
+    if not block_str or not lot_str:
+        return None
+
+    return f"{borough_str}{block_str}{lot_str}"
+
 def validate_bbl_borough_consistency(bbl, borough_name):
     """
     Validate that BBL borough code matches the provided borough name.
@@ -53,14 +108,14 @@ def validate_bbl_borough_consistency(bbl, borough_name):
 def decompose_bbl(bbl, borough_name=None):
     """
     Decompose BBL into borough, block, lot components for DOB API searching.
-    Optionally validates borough consistency.
+    Ensures block and lot are properly padded.
 
     Args:
         bbl: BBL value to decompose
         borough_name: Optional borough name for validation
 
     Returns:
-        tuple: (borough_name, block_int, lot_int) or (borough_name, block_int, lot_int, is_valid) if validation requested
+        tuple: (borough_name, block_str, lot_str) or (borough_name, block_str, lot_str, is_valid) if validation requested
     """
     if pd.isna(bbl):
         return None, None, None
@@ -71,8 +126,12 @@ def decompose_bbl(bbl, borough_name=None):
         return None, None, None
 
     borough_code = bbl_str[0]
-    block_str = bbl_str[1:6]       # Keep as string with leading zeros (API expects '03368', not 3368)
-    lot_str = bbl_str[6:]          # Keep as string with leading zeros (API expects '00007', not 7)
+    block_raw = bbl_str[1:6]
+    lot_raw = bbl_str[6:]
+
+    # Ensure proper padding (block: 5 digits, lot: 4 digits)
+    block_str = pad_block(block_raw)
+    lot_str = pad_lot(lot_raw)
 
     # Convert borough code to name (DOB APIs use names, not codes)
     borough_mapping = {
@@ -418,12 +477,12 @@ def query_dob_filings(search_file_path, output_path=None, use_bbl_fallback=True)
                     bbl_result = decompose_bbl(bbl_val, borough_name)
 
                     if len(bbl_result) == 4:  # Validation included
-                        borough_from_bbl, block_int, lot_int, is_valid = bbl_result
+                        borough_from_bbl, block_str, lot_str, is_valid = bbl_result
                         if not is_valid:
                             warning_msg = f"WARNING: BIN {bin_val} - BBL {bbl_val} suggests {borough_from_bbl} but data shows {borough_name}"
                             validation_warnings.append(warning_msg)
                             print(f"  ⚠️  {warning_msg}")
-                        bbl_tuple = (borough_from_bbl, block_int, lot_int)
+                        bbl_tuple = (borough_from_bbl, block_str, lot_str)
                     else:  # No validation
                         bbl_tuple = bbl_result
 
