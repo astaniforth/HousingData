@@ -1,116 +1,57 @@
 # Housing Data Analysis
 
-This repository contains scripts and data for analyzing affordable housing production in New York City, with a focus on identifying new construction projects and correlating HPD (Housing Preservation and Development) financing data with DOB (Department of Buildings) permit filings.
+Pipeline for connecting HPD affordable housing production data to DOB filings and Certificates of Occupancy (CO), and visualizing timelines by BIN.
 
-## Files
+## Quick Start (orchestrated run)
+- Install deps: `pip install pandas matplotlib requests beautifulsoup4 plotly`
+- Run everything with defaults: `python run_workflow.py`
+  - Automatically verifies/fetches latest HPD data, adds financing classification, enriches with DOB/CO data, and generates timeline charts
+- Useful flags:
+  - `--refresh-hpd` force fetch fresh HPD data from NYC Open Data
+  - `--bin-file all_construction_bins.txt` supply your own BIN list for CO queries
+  - `--skip-dob` / `--skip-co` / `--skip-join` / `--skip-charts` reuse existing outputs
+  - `--dob-search-source my_bins.csv` run DOB search against a custom CSV (enables BBL fallback if it has BIN + BBL columns)
 
-### Data Files
-- `data/raw/Affordable_Housing_Production_by_Building.csv` - HPD data on affordable housing buildings
-- `Affordable_Housing_Production_by_Building_with_financing.csv` - HPD data with financing type classification (HPD vs Private)
-- `new_construction_bins_dob_filings.csv` - DOB job application filings for new construction (NB/New Building type)
-- `all_construction_bins_co_filings.csv` - Certificate of Occupancy data from DOB APIs
+Outputs land in `data/raw/`, `data/processed/`, `data_quality_reports/`, and `output/`.
 
-### Scripts
+## Workflow Steps
+1. **Data Verification & Fetching**: Verify local HPD data matches NYC Open Data API (record count + sample comparison); fetch fresh data if needed. Raw data saved to `data/raw/`.
+2. **Financing Classification**: Query LL44 funding database to classify projects as HPD-financed vs privately-financed. Processed data saved to `data/processed/`.
+3. **DOB/CO Data Enrichment**: Query DOB APIs for New Building filings and Certificate of Occupancy data using BINs/BBLs. Enriched data saved to `data/processed/`.
+4. **Timeline Charts**: Generate multi-page PDF timeline charts showing HPD production dates, DOB filings, and CO events by financing type. Charts saved to `output/`.
+5. **Data Quality Reporting**: `data_quality.py` tracks completeness, validation metrics, and generates Sankey diagrams showing data flow through the pipeline. Reports saved to `data_quality_reports/`.
 
-#### `query_dob_filings.py`
-Queries NYC Open Data APIs to find DOB job filings for new construction projects.
-- Searches DOB Job Application Filings API for job type "NB"
-- Searches DOB NOW Job Applications API for job type "New Building"
-- Matches filings to BINs from the housing data
-- **BBL Fallback**: When BINs are missing, decomposes BBL into borough/block/lot for alternative search
-- **Multiple BIN Handling**: Recognizes that one BBL can contain multiple BINs
+## Key Scripts (manual usage)
+- `fetch_affordable_housing_data.py` — fetch HPD data; `--verify` option compares local data with API
+- `query_ll44_funding.py <hpd_csv>` — adds `Financing Type` based on LL44 funding (outputs to `data/processed/`)
+- `query_dob_filings.py <bins_or_csv>` — DOB NB/New Building filings with BBL fallback (outputs to `data/processed/`)
+- `query_co_filings.py <bin_list.txt>` — CO filings for BINs (outputs to `data/processed/`)
+- `HPD_DOB_Join_On_BIN.py <hpd_csv> <dob_filings_csv> [co_filings_csv]` — joins timelines
+- `create_timeline_chart.py <timeline_csv>` — PDF timeline chart for the provided timeline
+- `run_workflow.py` — orchestrates the complete 4-step pipeline with data quality tracking
 
-**Usage:**
-```bash
-# Search by BIN file
-python query_dob_filings.py bins_file.txt
-
-# Search by CSV with BIN/BBL columns (enables BBL fallback)
-python query_dob_filings.py data_with_bbl.csv
-```
-
-#### `query_co_filings.py`
-Queries NYC Open Data APIs to find Certificate of Occupancy data for buildings.
-- Searches DOB NOW Certificate of Occupancy API
-- Searches DOB Certificate Of Occupancy API
-- Extracts first CO issuance date for each BIN
-
-**Usage:**
-```bash
-python query_co_filings.py all_construction_bins.txt
-```
-
-#### `query_ll44_funding.py`
-Queries Local Law 44 funding database to classify projects by financing type.
-- Checks if project IDs exist in LL44 funding database
-- Classifies projects as "HPD Financed" or "Privately Financed"
-- Adds financing type column to HPD data
-
-**Usage:**
-```bash
-python query_ll44_funding.py data/raw/Affordable_Housing_Production_by_Building.csv
-```
-
-#### `HPD_DOB_Join_On_BIN.py`
-Creates a timeline combining HPD financing data with DOB filing/approval dates and Certificate of Occupancy data.
-- Extracts HPD financing start and completion dates
-- Extracts DOB/DOB NOW application submission and approval dates
-- Extracts first Certificate of Occupancy issuance date
-- Creates a unified timeline CSV sorted by BIN and date
-
-**Usage:**
-```bash
-python HPD_DOB_Join_On_BIN.py data/raw/Affordable_Housing_Production_by_Building.csv new_construction_bins_dob_filings.csv [co_filings.csv]
-```
-
-**Output:**
-- `Affordable_Housing_Production_by_Building_timeline.csv` - Timeline of all events by BIN
-
-#### `create_timeline_chart.py`
-Generates a Gantt-style timeline chart showing DOB application, HPD financing, and Certificate of Occupancy timelines for each BIN.
-
-**Usage:**
-```bash
-python create_timeline_chart.py Affordable_Housing_Production_by_Building_timeline.csv
-```
-
-**Output:**
-- `*_hpd_financed_timeline_timeline_chart.pdf` - Chart for HPD financed projects
-- `*_privately_financed_timeline_timeline_chart.pdf` - Chart for privately financed projects
-- `*_timeline_timeline_data.csv` - Extracted timeline data for each financing type
+## Inputs and Outputs
+- **Raw Data**: `data/raw/Affordable_Housing_Production_by_Building.csv` (verified against NYC Open Data API)
+- **Processed Data** (`data/processed/`):
+  - `*with_financing.csv` (HPD + LL44 financing classification)
+  - `*_dob_filings.csv` and `*_dob_filings_summary.csv` (DOB New Building filings)
+  - `*_co_filings.csv` and `*_co_filings_summary.csv` (Certificate of Occupancy data)
+  - `*_timeline.csv` (HPD financed and privately financed timelines)
+- **Outputs**:
+  - `output/*_timeline_chart.pdf` and `output/*_timeline_data.csv` (timeline visualizations)
+  - `data_quality_reports/*` (data quality reports and Sankey diagrams showing data flow)
 
 ## Data Sources
+- HPD Affordable Housing Production
+- LL44 Funding: [NYC Open Data](https://data.cityofnewyork.us/resource/gmi7-62cd.json)
+- DOB Job Application Filings: [ic3t-wcy2](https://data.cityofnewyork.us/Housing-Development/DOB-Job-Application-Filings/ic3t-wcy2)
+- DOB NOW Job Applications: [w9ak-ipjd](https://data.cityofnewyork.us/Housing-Development/DOB-NOW-Job-Application-Filings/w9ak-ipjd)
+- DOB NOW Certificate of Occupancy: [pkdm-hqz6](https://data.cityofnewyork.us/resource/pkdm-hqz6.json)
+- DOB Certificate Of Occupancy: [bs8b-p36w](https://data.cityofnewyork.us/resource/bs8b-p36w.json)
 
-- **HPD Data**: Affordable Housing Production data from NYC HPD
-- **LL44 Funding**: [NYC Open Data - Local Law 44 Funding](https://data.cityofnewyork.us/resource/gmi7-62cd.json) - Used to classify projects as HPD or privately financed
-- **DOB Job Applications**: [NYC Open Data - DOB Job Application Filings](https://data.cityofnewyork.us/Housing-Development/DOB-Job-Application-Filings/ic3t-wcy2)
-- **DOB NOW Job Applications**: [NYC Open Data - DOB NOW Job Applications](https://data.cityofnewyork.us/Housing-Development/DOB-NOW-Job-Application-Filings/w9ak-ipjd)
-- **DOB NOW Certificate of Occupancy**: [NYC Open Data - DOB NOW Certificate of Occupancy](https://data.cityofnewyork.us/resource/pkdm-hqz6.json)
-- **DOB Certificate Of Occupancy**: [NYC Open Data - DOB Certificate Of Occupancy](https://data.cityofnewyork.us/resource/bs8b-p36w.json)
-
-## Requirements
-
-```bash
-pip install pandas matplotlib requests beautifulsoup4
-```
-
-## Workflow
-
-1. Extract BINs for new construction projects from `data/raw/Affordable_Housing_Production_by_Building.csv`
-2. Query LL44 funding database to classify projects by financing type using `query_ll44_funding.py`
-3. Query DOB APIs for NB/New Building filings using `query_dob_filings.py` (includes BBL fallback for missing BINs)
-4. Query CO APIs for Certificate of Occupancy data using `query_co_filings.py`
-5. Join HPD, DOB, and CO data by BIN using `HPD_DOB_Join_On_BIN.py` (creates separate timelines for HPD and private projects)
-6. Visualize timelines using `create_timeline_chart.py` (creates separate charts for HPD and private projects)
-
-## Timeline Event Types
-
-- **HPD financing submitted** - Project start date from HPD
-- **HPD financing completed** - Project completion date from HPD
-- **DOB NB Application submitted** - First DOB filing for new building
-- **DOB NB Application approved** - First DOB approval for new building
-- **DOB NOW New Building Application submitted** - First DOB NOW filing
-- **DOB NOW New Building Application approved** - First DOB NOW approval
-- **Certificate of Occupancy issued (Initial)** - Initial/Temporary CO issuance date
-- **Certificate of Occupancy issued (Final)** - Final CO issuance date
-
+## Notes
+- The workflow automatically verifies local HPD data against the NYC Open Data API using record count and sample comparison before proceeding.
+- BBL fallback in `query_dob_filings.py` requires a CSV with BIN and BBL columns (e.g., the HPD dataset).
+- API calls hit NYC Open Data and may take several minutes; using `--skip-dob`/`--skip-co` flags reuses existing processed data.
+- Data quality reports include Sankey diagrams showing how the dataset is filtered and enriched through each pipeline stage.
+- The pipeline is designed to be extensible - additional enrichment steps can be added before chart generation.

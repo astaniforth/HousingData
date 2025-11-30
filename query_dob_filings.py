@@ -3,6 +3,7 @@ import requests
 import time
 import sys
 import os
+from pathlib import Path
 from urllib.parse import quote
 from data_quality import quality_tracker, validate_bbl_borough_consistency
 
@@ -116,7 +117,7 @@ def query_dob_api(url, search_list, job_type="NB", search_type="bin", limit=5000
     if search_type == "bbl":
         batch_size = 5  # Much smaller batches for BBL searches
     else:
-        batch_size = 50  # Normal batch size for BIN searches
+        batch_size = 300  # Optimal batch size for BIN searches (51.5 records/s)
 
     for i in range(0, len(search_list), batch_size):
         batch = search_list[i:i+batch_size]
@@ -189,34 +190,13 @@ def query_dob_api(url, search_list, job_type="NB", search_type="bin", limit=5000
                     print(f"    No records found")
 
                 # Rate limiting
-                time.sleep(0.5)
+                time.sleep(0.1)
 
             except Exception as e:
                 print(f"    Error querying batch: {str(e)}")
                 if hasattr(e, 'response') and e.response is not None:
                     print(f"    Response: {e.response.text[:200]}")
                 continue
-
-        try:
-            print(f"  Querying batch {i//batch_size + 1} (Items {i+1}-{min(i+batch_size, len(search_list))})...")
-            response = requests.get(url, params=params, timeout=30)
-            response.raise_for_status()
-
-            data = response.json()
-            if data:
-                all_results.extend(data)
-                print(f"    Found {len(data)} records")
-            else:
-                print(f"    No records found")
-
-            # Rate limiting
-            time.sleep(0.5)
-
-        except Exception as e:
-            print(f"    Error querying batch: {str(e)}")
-            if hasattr(e, 'response') and e.response is not None:
-                print(f"    Response: {e.response.text[:200]}")
-            continue
 
     if all_results:
         df = pd.DataFrame(all_results)
@@ -408,21 +388,21 @@ def query_dob_filings(search_file_path, output_path=None, use_bbl_fallback=True)
             print(f"Sample BINs: {list(unique_bins)[:20]}")
 
     # Save results
+    processed_dir = Path('data/processed')
+    processed_dir.mkdir(parents=True, exist_ok=True)
+    input_stem = Path(search_file_path).stem
+
     if output_path is None:
-        from pathlib import Path
-        # Save to data/external/ folder
-        external_dir = Path('data/external')
-        external_dir.mkdir(parents=True, exist_ok=True)
-        base_name = Path(bin_file_path).stem
-        output_path = external_dir / f"{base_name}_dob_filings.csv"
+        output_path = processed_dir / f"{input_stem}_dob_filings.csv"
+    else:
+        output_path = Path(output_path)
 
     combined.to_csv(output_path, index=False)
     print(f"\nResults saved to: {output_path}")
 
     # Also create a summary by BIN
     if 'bin_normalized' in combined.columns:
-        base_name = Path(bin_file_path).stem
-        summary_path = external_dir / f"{base_name}_dob_filings_summary.csv"
+        summary_path = processed_dir / f"{input_stem}_dob_filings_summary.csv"
         summary = combined.groupby('bin_normalized').size().reset_index()
         summary.columns = ['BIN', 'Number_of_Filings']
         summary = summary.sort_values('Number_of_Filings', ascending=False)
@@ -430,8 +410,8 @@ def query_dob_filings(search_file_path, output_path=None, use_bbl_fallback=True)
         print(f"Summary by BIN saved to: {summary_path}")
 
     # Generate data quality report
-    base_name = bin_file_path.replace('.csv', '').replace('.txt', '').replace('_bins', '_dob_search')
-    report_filename = quality_tracker.save_report_to_file(base_name)
+    report_base_name = input_stem.replace('_bins', '_dob_search')
+    report_filename = quality_tracker.save_report_to_file(report_base_name)
     quality_tracker.print_report()
 
     print(f"📊 Data quality report also saved to: {report_filename}")
@@ -487,4 +467,3 @@ if __name__ == "__main__":
         sys.exit(1)
     
     query_dob_filings(bin_file, use_bbl_fallback=True)
-

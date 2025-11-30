@@ -11,12 +11,12 @@ from datetime import datetime, timedelta
 LL44_FUNDING_URL = "https://data.cityofnewyork.us/resource/gmi7-62cd.json"
 
 # Local cache settings
-LL44_FUNDING_CACHE_FILE = "data/raw/ll44_funding_data.csv"
+LL44_FUNDING_CACHE_FILE = "data/processed/ll44_funding_data.csv"
 LL44_FUNDING_CACHE_MAX_AGE_HOURS = 24  # Consider cache valid for 24 hours
 
 # LL44 eligibility data (which projects are subject to LL44)
 LL44_ELIGIBILITY_URL = "https://data.cityofnewyork.us/resource/ucdy-byxd.json"
-LL44_ELIGIBILITY_CACHE_FILE = "data/raw/ll44_eligibility_data.csv"
+LL44_ELIGIBILITY_CACHE_FILE = "data/processed/ll44_eligibility_data.csv"
 LL44_ELIGIBILITY_CACHE_MAX_AGE_HOURS = 24  # Consider cache valid for 24 hours
 
 def fetch_ll44_eligibility_data(limit=50000):

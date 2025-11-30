@@ -7,6 +7,7 @@ including BBL-borough consistency, BIN match rates, missing data analysis, and m
 
 import pandas as pd
 from datetime import datetime
+import os
 
 def validate_bbl_borough_consistency(bbl, borough_name):
     """
@@ -295,6 +296,75 @@ class DataQualityTracker:
         self.metrics['api_calls_made'] = calls_made
         self.metrics['api_errors'] = errors
 
+    def record_pipeline_stage(self, stage_name, record_count, description=""):
+        """
+        Record a pipeline stage with record count and description.
+
+        Args:
+            stage_name: Name of the pipeline stage (e.g., "raw_hpd_data", "after_confidential_filter")
+            record_count: Number of records at this stage
+            description: Description of what happened at this stage
+        """
+        key = f'pipeline_stage_{stage_name}'
+        self.metrics[key] = {
+            'record_count': record_count,
+            'description': description,
+            'timestamp': datetime.now().isoformat()
+        }
+
+    def record_filtering_step(self, step_name, records_before, records_after, reason=""):
+        """
+        Record a filtering step that reduces the dataset.
+
+        Args:
+            step_name: Name of the filtering step
+            records_before: Record count before filtering
+            records_after: Record count after filtering
+            reason: Reason for filtering (e.g., "removed confidential records")
+        """
+        key = f'filter_step_{step_name}'
+        self.metrics[key] = {
+            'records_before': records_before,
+            'records_after': records_after,
+            'records_removed': records_before - records_after,
+            'removal_percentage': ((records_before - records_after) / records_before * 100) if records_before > 0 else 0,
+            'reason': reason,
+            'timestamp': datetime.now().isoformat()
+        }
+
+    def get_pipeline_summary(self):
+        """
+        Generate a summary of the pipeline stages and filtering steps.
+
+        Returns:
+            dict: Summary of pipeline flow
+        """
+        summary = {
+            'stages': {},
+            'filters': {},
+            'total_stages': 0,
+            'total_filters': 0,
+            'net_reduction': 0
+        }
+
+        # Collect stages
+        stages = {k: v for k, v in self.metrics.items() if k.startswith('pipeline_stage_')}
+        summary['stages'] = {k.replace('pipeline_stage_', ''): v for k, v in stages.items()}
+        summary['total_stages'] = len(stages)
+
+        # Collect filters
+        filters = {k: v for k, v in self.metrics.items() if k.startswith('filter_step_')}
+        summary['filters'] = {k.replace('filter_step_', ''): v for k, v in filters.items()}
+        summary['total_filters'] = len(filters)
+
+        # Calculate net reduction
+        if stages:
+            stage_counts = [v['record_count'] for v in stages.values()]
+            if stage_counts:
+                summary['net_reduction'] = stage_counts[0] - stage_counts[-1] if len(stage_counts) > 1 else 0
+
+        return summary
+
     def generate_report(self):
         """Generate a comprehensive data quality report."""
         report = []
@@ -521,6 +591,36 @@ class DataQualityTracker:
         if self.metrics.get('total_records', 0) > 100:
             report.extend(self._generate_detailed_report())
 
+        # Pipeline flow section
+        pipeline_summary = self.get_pipeline_summary()
+        if pipeline_summary['total_stages'] > 0:
+            report.append("")
+            report.append("🔄 DATA PIPELINE FLOW")
+            report.append("-" * 40)
+
+            # Show stages in order
+            stage_order = ['raw_hpd_data', 'after_confidential_filter', 'after_construction_filter',
+                          'after_financing', 'after_dob_enrichment', 'final_dataset']
+
+            for stage_name in stage_order:
+                if stage_name in pipeline_summary['stages']:
+                    stage_info = pipeline_summary['stages'][stage_name]
+                    report.append(f"📍 {stage_name.replace('_', ' ').title()}: {stage_info['record_count']:,} records")
+                    if stage_info['description']:
+                        report.append(f"   {stage_info['description']}")
+
+            # Show filtering steps
+            if pipeline_summary['total_filters'] > 0:
+                report.append("")
+                report.append("🎯 Filtering Steps:")
+                for filter_name, filter_info in pipeline_summary['filters'].items():
+                    removed = filter_info['records_removed']
+                    pct = filter_info['removal_percentage']
+                    report.append(f"  {filter_name}: removed {removed:,} ({pct:.1f}%) - {filter_info['reason']}")
+
+                report.append("")
+                report.append(f"📊 Net Dataset Reduction: {pipeline_summary['net_reduction']:,} records")
+
         report.append("")
         report.append("✅ Data Quality Report Complete")
         report.append("=" * 80)
@@ -681,8 +781,8 @@ class DataQualityTracker:
         if base_filename is None:
             base_filename = "data_quality_report"
 
-        # Create dataquality_reports directory if it doesn't exist
-        reports_dir = "dataquality_reports"
+        # Create data_quality_reports directory if it doesn't exist
+        reports_dir = "data_quality_reports"
         if not os.path.exists(reports_dir):
             os.makedirs(reports_dir)
 
@@ -691,6 +791,10 @@ class DataQualityTracker:
         filename = f"{reports_dir}/{base_filename}_{timestamp}.txt"
 
         self.save_report(filename)
+
+        # Also generate Sankey diagram
+        sankey_filename = self.generate_sankey_diagram()
+
         return filename
 
     def save_report(self, filename):
@@ -698,6 +802,115 @@ class DataQualityTracker:
         with open(filename, 'w') as f:
             f.write(self.generate_report())
         print(f"📊 Data quality report saved to: {filename}")
+
+    def generate_sankey_diagram(self, output_filename=None):
+        """
+        Generate a Sankey diagram showing data flow through the pipeline stages.
+
+        Args:
+            output_filename: Optional custom filename for the HTML output
+
+        Returns:
+            str: Path to the generated HTML file
+        """
+        try:
+            import plotly.graph_objects as go
+        except ImportError:
+            print("⚠️  Plotly not installed. Install with: pip install plotly")
+            return None
+
+        # Extract metrics for Sankey diagram
+        # Node labels (pipeline stages)
+        labels = [
+            "Full HPD Dataset",
+            "Remove Confidential",
+            "Filter New Construction",
+            "Add Financing Type",
+            "Enrich with DOB/CO",
+            "Final Dataset"
+        ]
+
+        # Get record counts at each stage
+        full_count = self.metrics.get('Full_HPD_Dataset_total_records', 0)
+        confidential_removed = self.metrics.get('Full_HPD_Dataset_confidential_records', 0)
+        after_confidential = full_count - confidential_removed
+
+        # For now, we'll use placeholder values for intermediate steps
+        # These will be populated as we enhance the quality tracking
+        filtered_count = self.metrics.get('Current_HPD_total_records',
+                                         self.metrics.get('Filtered_HPD_total_records', 0))
+        final_count = self.metrics.get('total_records', filtered_count)
+
+        # Create node values (record counts)
+        values = [
+            full_count,           # Full HPD
+            after_confidential,   # After confidential removal
+            filtered_count,       # After filtering
+            filtered_count,       # After financing (no records lost)
+            final_count,          # After enrichment
+            final_count           # Final
+        ]
+
+        # Create links (flows between stages)
+        source = [0, 1, 2, 3, 4]  # From nodes
+        target = [1, 2, 3, 4, 5]  # To nodes
+        link_values = [
+            after_confidential,   # Full -> Remove confidential
+            filtered_count,       # Remove confidential -> Filter
+            filtered_count,       # Filter -> Add financing
+            final_count,          # Add financing -> Enrich
+            final_count           # Enrich -> Final
+        ]
+
+        # Create custom link labels with percentages
+        link_labels = []
+        for i, val in enumerate(link_values):
+            if i == 0 and full_count > 0:
+                pct = (val / full_count) * 100
+                link_labels.append(f"{val:,} ({pct:.1f}%)")
+            elif i == 1 and after_confidential > 0:
+                pct = (val / after_confidential) * 100
+                link_labels.append(f"{val:,} ({pct:.1f}%)")
+            else:
+                link_labels.append(f"{val:,}")
+
+        # Create the Sankey diagram
+        fig = go.Figure(data=[go.Sankey(
+            node=dict(
+                pad=15,
+                thickness=20,
+                line=dict(color="black", width=0.5),
+                label=labels,
+                color="lightblue"
+            ),
+            link=dict(
+                source=source,
+                target=target,
+                value=link_values,
+                label=link_labels
+            )
+        )])
+
+        fig.update_layout(
+            title_text="Housing Data Pipeline Flow",
+            font_size=12,
+            height=600
+        )
+
+        # Save to file
+        if output_filename is None:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_filename = f"data_quality_reports/data_flow_sankey_{timestamp}.html"
+
+        # Ensure directory exists
+        output_dir = os.path.dirname(output_filename)
+        if output_dir and not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+
+        fig.write_html(output_filename)
+        print(f"📊 Sankey diagram saved to: {output_filename}")
+
+        return output_filename
 
 # Global instance for easy access
 quality_tracker = DataQualityTracker()

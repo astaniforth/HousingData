@@ -168,11 +168,11 @@ def query_co_filings(bin_file_path, output_path=None):
     # Save results
     if output_path is None:
         from pathlib import Path
-        # Save to data/external/ folder
-        external_dir = Path('data/external')
-        external_dir.mkdir(parents=True, exist_ok=True)
+        # Save to data/processed/ folder
+        processed_dir = Path('data/processed')
+        processed_dir.mkdir(parents=True, exist_ok=True)
         base_name = Path(bin_file_path).stem
-        output_path = external_dir / f"{base_name}_co_filings.csv"
+        output_path = processed_dir / f"{base_name}_co_filings.csv"
 
     combined.to_csv(output_path, index=False)
     print(f"\nResults saved to: {output_path}")
@@ -180,7 +180,7 @@ def query_co_filings(bin_file_path, output_path=None):
     # Also create a summary by BIN with first CO date
     if 'bin_normalized' in combined.columns:
         base_name = Path(bin_file_path).stem
-        summary_path = external_dir / f"{base_name}_co_filings_summary.csv"
+        summary_path = processed_dir / f"{base_name}_co_filings_summary.csv"
 
         # Function to get earliest CO date for each BIN
         def get_earliest_co_date(group):
