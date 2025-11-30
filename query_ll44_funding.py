@@ -447,10 +447,11 @@ def add_financing_type(hpd_df, ll44_funding_df, output_path=None):
 def enrich_with_ll44_eligibility(hpd_df, use_cache=True):
     """
     Enrich HPD data with LL44 eligibility information.
+    Uses both eligibility and funding data to determine LL44 status.
 
     Args:
         hpd_df: HPD DataFrame to enrich
-        use_cache: Whether to use local LL44 eligibility cache
+        use_cache: Whether to use local LL44 caches
 
     Returns:
         pandas.DataFrame: HPD data with added 'subject_to_ll44' column
@@ -459,20 +460,35 @@ def enrich_with_ll44_eligibility(hpd_df, use_cache=True):
 
     # Get LL44 eligibility data
     ll44_eligibility, _ = verify_and_fetch_ll44_eligibility_data(use_existing=use_cache)
-    print(f"Loaded {len(ll44_eligibility)} LL44 eligible projects")
+    eligibility_project_ids = set(ll44_eligibility['projectid'].dropna().astype(str).unique())
+    print(f"Loaded {len(ll44_eligibility)} LL44 eligible projects from eligibility dataset")
 
-    # Create set of project IDs that are subject to LL44
-    ll44_project_ids = set(ll44_eligibility['projectid'].dropna().astype(str).unique())
-    print(f"Found {len(ll44_project_ids)} projects subject to LL44")
+    # Also check LL44 funding data - if a project has LL44 funding, it's subject to LL44
+    ll44_funding, _ = verify_and_fetch_ll44_data(use_existing=use_cache)
+    funding_project_ids = set(ll44_funding['projectid'].dropna().astype(str).unique())
+    print(f"Loaded {len(ll44_funding)} LL44 funding records from funding dataset")
+
+    # Combine both sources - a project is subject to LL44 if it appears in either dataset
+    all_ll44_project_ids = eligibility_project_ids.union(funding_project_ids)
+    print(f"Combined: {len(all_ll44_project_ids)} unique projects subject to LL44")
+
+    # Show breakdown
+    eligibility_only = eligibility_project_ids - funding_project_ids
+    funding_only = funding_project_ids - eligibility_project_ids
+    both = eligibility_project_ids.intersection(funding_project_ids)
+
+    print(f"  • In eligibility only: {len(eligibility_only)}")
+    print(f"  • In funding only: {len(funding_only)} (like project 44225)")
+    print(f"  • In both: {len(both)}")
 
     # Add subject_to_ll44 column to HPD data
     hpd_df = hpd_df.copy()
-    hpd_df['subject_to_ll44'] = hpd_df['Project ID'].astype(str).isin(ll44_project_ids)
+    hpd_df['subject_to_ll44'] = hpd_df['Project ID'].astype(str).isin(all_ll44_project_ids)
 
     # Summary
     ll44_count = hpd_df['subject_to_ll44'].sum()
     total_count = len(hpd_df)
-    print(f"LL44 eligibility enrichment complete:")
+    print(f"\nLL44 eligibility enrichment complete:")
     print(f"  Total HPD buildings: {total_count:,}")
     print(f"  Subject to LL44: {ll44_count:,} ({ll44_count/total_count*100:.1f}%)")
     print(f"  Not subject to LL44: {total_count - ll44_count:,} ({(total_count - ll44_count)/total_count*100:.1f}%)")
