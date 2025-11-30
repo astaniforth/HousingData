@@ -40,7 +40,7 @@ def fetch_hpd_projects_data(limit=50000):
 
     while True:
         params = {
-            '$limit': min(batch_size, limit - len(all_records)),
+            '$limit': batch_size if limit is None else min(batch_size, limit - len(all_records)),
             '$offset': offset,
             '$order': 'project_id'  # Consistent ordering
         }
@@ -59,8 +59,8 @@ def fetch_hpd_projects_data(limit=50000):
 
             print(f"  Retrieved {len(batch_data)} records (total: {len(all_records):,})")
 
-            # Stop if we've reached the limit
-            if len(all_records) >= limit:
+            # Stop if we've reached the limit (only applies when limit is set)
+            if limit is not None and len(all_records) >= limit:
                 break
 
             # Rate limiting
@@ -196,7 +196,7 @@ def fetch_affordable_housing_data(limit=50000, output_file=None, use_projects_ca
 
     while True:
         params = {
-            '$limit': min(batch_size, limit - len(all_records)),
+            '$limit': batch_size if limit is None else min(batch_size, limit - len(all_records)),
             '$offset': offset,
             '$order': 'project_id'  # Consistent ordering
         }
@@ -215,8 +215,8 @@ def fetch_affordable_housing_data(limit=50000, output_file=None, use_projects_ca
 
             print(f"  Retrieved {len(batch_data)} records (total: {len(all_records):,})")
 
-            # Stop if we've reached the limit
-            if len(all_records) >= limit:
+            # Stop if we've reached the limit (only applies when limit is set)
+            if limit is not None and len(all_records) >= limit:
                 break
 
             # Rate limiting
