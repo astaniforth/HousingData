@@ -499,9 +499,19 @@ def query_and_add_financing(hpd_csv_path, output_path=None, use_cache=True, use_
         use_eligibility_cache: Whether to use local LL44 eligibility cache (default True)
     """
 
-    # Read HPD data
+    # Read HPD data (preserve string data types for IDs)
     print(f"Reading HPD data: {hpd_csv_path}")
-    df_hpd = pd.read_csv(hpd_csv_path)
+    hpd_dtypes = {
+        'Project ID': str,
+        'Building ID': str,
+        'Number': str,
+        'Postcode': str,
+        'BBL': str,
+        'BIN': str,
+        'Council District': str,
+        'Census Tract': str
+    }
+    df_hpd = pd.read_csv(hpd_csv_path, dtype=hpd_dtypes)
     print(f"Loaded {len(df_hpd)} HPD buildings")
 
     # Enrich with LL44 eligibility
