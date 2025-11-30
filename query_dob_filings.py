@@ -35,9 +35,9 @@ def validate_bbl_borough_consistency(bbl, borough_name):
         # Borough mapping
         borough_mapping = {
             '1': 'MANHATTAN',
-            '2': 'BROOKLYN',
-            '3': 'QUEENS',
-            '4': 'BRONX',
+            '2': 'BRONX',
+            '3': 'BROOKLYN',
+            '4': 'QUEENS',
             '5': 'STATEN ISLAND'
         }
 
