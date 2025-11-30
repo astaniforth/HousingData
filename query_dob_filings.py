@@ -435,29 +435,34 @@ def query_dob_filings(search_file_path, output_path=None, use_bbl_fallback=True)
     print("=" * 70)
     dob_now_filings_bin = query_dobnow_bin(bins)
 
-    # Identify which BINs didn't get matches
-    matched_bins = set()
-    if not dob_filings_bin.empty and 'bin__' in dob_filings_bin.columns:
-        matched_bins.update(dob_filings_bin['bin__'].dropna().astype(str).unique())
-    if not dob_now_filings_bin.empty and 'bin' in dob_now_filings_bin.columns:
-        matched_bins.update(dob_now_filings_bin['bin'].dropna().astype(str).unique())
+    # Identify which BINs got matches from each API separately
+    bisweb_matched_bins = set()
+    dobnow_matched_bins = set()
 
-    unmatched_bins = [b for b in bins if b not in matched_bins]
-    print(f"BIN search found matches for {len(matched_bins)} BINs")
-    print(f"{len(unmatched_bins)} BINs have no matches and will use BBL fallback")
+    if not dob_filings_bin.empty and 'bin__' in dob_filings_bin.columns:
+        bisweb_matched_bins.update(dob_filings_bin['bin__'].dropna().astype(str).unique())
+    if not dob_now_filings_bin.empty and 'bin' in dob_now_filings_bin.columns:
+        dobnow_matched_bins.update(dob_now_filings_bin['bin'].dropna().astype(str).unique())
+
+    # BBL fallback: only for BINs that didn't match in their respective API
+    bisweb_unmatched_bins = [b for b in bins if b not in bisweb_matched_bins]
+    dobnow_unmatched_bins = [b for b in bins if b not in dobnow_matched_bins]
+
+    print(f"BISWEB BIN found matches for {len(bisweb_matched_bins)} BINs")
+    print(f"DOB NOW BIN found matches for {len(dobnow_matched_bins)} BINs")
+    print(f"{len(bisweb_unmatched_bins)} BINs need BISWEB BBL fallback")
+    print(f"{len(dobnow_unmatched_bins)} BINs need DOB NOW BBL fallback")
 
     # Track BIN matching performance
-    quality_tracker.record_bin_matching(len(bins), len(matched_bins))
+    all_matched_bins = bisweb_matched_bins.union(dobnow_matched_bins)
+    quality_tracker.record_bin_matching(len(bins), len(all_matched_bins))
 
-    # Step 2: For unmatched BINs, try BBL search if we have BBL data
+    # Step 2: BBL fallback - separate for each API
     dob_filings_bbl = pd.DataFrame()
     dob_now_filings_bbl = pd.DataFrame()
 
-    # Step 2: For BINs that didn't match, try BBL search on both APIs
-    dob_filings_bbl = pd.DataFrame()
-    dob_now_filings_bbl = pd.DataFrame()
-
-    if use_bbl_fallback and len(unmatched_bins) > 0 and search_df is not None and 'BBL' in search_df.columns:
+    # Step 2A: BISWEB BBL fallback for BINs that didn't match in BISWEB BIN
+    if use_bbl_fallback and len(bisweb_unmatched_bins) > 0 and search_df is not None and 'BBL' in search_df.columns:
             print("\n" + "=" * 70)
             print("STEP 2A: QUERYING DOB BISWEB BY BBL (FALLBACK)")
             print("=" * 70)
@@ -466,7 +471,7 @@ def query_dob_filings(search_file_path, output_path=None, use_bbl_fallback=True)
             bbl_tuples = []
             validation_warnings = []
 
-            for bin_val in unmatched_bins:
+            for bin_val in bisweb_unmatched_bins:
                 # Find the corresponding row in search_df
                 if 'BIN_normalized' in search_df.columns:
                     mask = search_df['BIN_normalized'].astype(str).str.replace('.0', '') == bin_val
@@ -502,17 +507,59 @@ def query_dob_filings(search_file_path, output_path=None, use_bbl_fallback=True)
                 print("These may indicate data quality issues in the HPD dataset.")
 
             if bbl_tuples:
-                print(f"Searching {len(bbl_tuples)} BBLs for unmatched BINs...")
+                print(f"Searching {len(bbl_tuples)} BBLs for BISWEB BIN unmatched...")
                 dob_filings_bbl = query_dob_bisweb_bbl(bbl_tuples)
+                quality_tracker.record_bbl_fallback(len(bbl_tuples), len(dob_filings_bbl))
 
-                print("\n" + "=" * 70)
-                print("STEP 2B: QUERYING DOB NOW BY BBL (FALLBACK)")
-                print("=" * 70)
-                dob_now_filings_bbl = query_dobnow_bbl(bbl_tuples)
+    # Step 2B: DOB NOW BBL fallback for BINs that didn't match in DOB NOW BIN
+    if use_bbl_fallback and len(dobnow_unmatched_bins) > 0 and search_df is not None and 'BBL' in search_df.columns:
+            print("\n" + "=" * 70)
+            print("STEP 2B: QUERYING DOB NOW BY BBL (FALLBACK)")
+            print("=" * 70)
 
-                # Track BBL fallback results
-                bbl_successes = len(dob_filings_bbl) + len(dob_now_filings_bbl)
-                quality_tracker.record_bbl_fallback(len(bbl_tuples), bbl_successes)
+            # Get BBLs for DOB NOW unmatched BINs
+            bbl_tuples_dobnow = []
+            validation_warnings_dobnow = []
+
+            for bin_val in dobnow_unmatched_bins:
+                # Find the corresponding row in search_df
+                if 'BIN_normalized' in search_df.columns:
+                    mask = search_df['BIN_normalized'].astype(str).str.replace('.0', '') == bin_val
+                elif 'BIN' in search_df.columns:
+                    mask = search_df['BIN'].astype(str).str.replace('.0', '') == bin_val
+                else:
+                    continue
+
+                matching_rows = search_df[mask]
+                if not matching_rows.empty:
+                    row = matching_rows.iloc[0]
+                    bbl_val = row['BBL']
+                    borough_name = row.get('Borough')  # Get borough from data
+
+                    # Validate BBL-borough consistency
+                    bbl_result = decompose_bbl(bbl_val, borough_name)
+
+                    if len(bbl_result) == 4:  # Validation included
+                        borough_from_bbl, block_str, lot_str, is_valid = bbl_result
+                        if not is_valid:
+                            warning_msg = f"WARNING: BIN {bin_val} - BBL {bbl_val} suggests {borough_from_bbl} but data shows {borough_name}"
+                            validation_warnings_dobnow.append(warning_msg)
+                            print(f"  ⚠️  {warning_msg}")
+                        bbl_tuple = (borough_from_bbl, block_str, lot_str)
+                    else:  # No validation
+                        bbl_tuple = bbl_result
+
+                    if bbl_tuple[0] is not None:  # Valid BBL
+                        bbl_tuples_dobnow.append(bbl_tuple)
+
+            if validation_warnings_dobnow:
+                print(f"\n⚠️  Found {len(validation_warnings_dobnow)} BBL-borough inconsistencies!")
+                print("These may indicate data quality issues in the HPD dataset.")
+
+            if bbl_tuples_dobnow:
+                print(f"Searching {len(bbl_tuples_dobnow)} BBLs for DOB NOW BIN unmatched...")
+                dob_now_filings_bbl = query_dobnow_bbl(bbl_tuples_dobnow)
+                quality_tracker.record_bbl_fallback(len(bbl_tuples_dobnow), len(dob_now_filings_bbl))
 
     # Combine all results
     dob_filings = pd.concat([dob_filings_bin, dob_filings_bbl], ignore_index=True) if not dob_filings_bbl.empty else dob_filings_bin
