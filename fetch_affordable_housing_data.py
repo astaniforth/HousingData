@@ -536,7 +536,17 @@ def verify_and_fetch_hpd_data(sample_size=100, use_existing=True, output_path=No
     local_count = len(local_df)
     print(f"Local file has {local_count:,} records")
 
-    # Fetch a sample from API for comparison
+    # Check if local data is already filtered to New Construction (our expected state)
+    is_pre_filtered = False
+    if 'Reporting Construction Type' in local_df.columns:
+        construction_types = local_df['Reporting Construction Type'].value_counts(dropna=False)
+        is_pre_filtered = len(construction_types) == 1 and 'New Construction' in construction_types.index
+
+    if is_pre_filtered:
+        print("✅ Local data is pre-filtered to New Construction only - skipping API verification")
+        return local_df, local_file
+
+    # Fetch a sample from API for comparison (only for unfiltered legacy data)
     print(f"\nFetching {sample_size} sample records from API for verification...")
     api_sample_df = fetch_affordable_housing_data(limit=sample_size, use_projects_cache=False)  # Don't enrich sample
 
