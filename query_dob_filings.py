@@ -13,33 +13,32 @@ DOB_NOW_URL = "https://data.cityofnewyork.us/resource/w9ak-ipjd.json"
 
 def pad_block(block):
     """
-    Pad block to 4 digits with leading zeros.
+    Pad block to 5 digits with leading zeros.
 
     Args:
         block: Block value (string or numeric)
 
     Returns:
-        str: 4-digit block with leading zeros
+        str: 5-digit block with leading zeros
     """
     if pd.isna(block):
         return None
     block_str = str(int(float(block)))
-    return block_str.zfill(4)
+    return block_str.zfill(5)
 
 def pad_lot(lot):
     """
-    Pad lot to 5 digits with leading zeros.
+    Convert lot to string without padding.
 
     Args:
         lot: Lot value (string or numeric)
 
     Returns:
-        str: 5-digit lot with leading zeros
+        str: Lot as string without zero padding
     """
     if pd.isna(lot):
         return None
-    lot_str = str(int(float(lot)))
-    return lot_str.zfill(5)
+    return str(int(float(lot)))
 
 def create_bbl(borough_code, block, lot):
     """
@@ -126,10 +125,10 @@ def decompose_bbl(bbl, borough_name=None):
         return None, None, None
 
     borough_code = bbl_str[0]
-    block_raw = bbl_str[1:5]  # positions 1-4 (4 digits)
-    lot_raw = bbl_str[5:]     # positions 5-9 (5 digits)
+    block_raw = bbl_str[1:6]  # positions 1-5 (5 digits)
+    lot_raw = bbl_str[6:]     # positions 6-9 (4 digits)
 
-    # Ensure proper padding (block: 4 digits, lot: 5 digits)
+    # Ensure proper padding (block: 5 digits, lot: not zero-padded)
     block_str = pad_block(block_raw)
     lot_str = pad_lot(lot_raw)
 
