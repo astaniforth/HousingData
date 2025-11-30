@@ -71,15 +71,15 @@ def decompose_bbl(bbl, borough_name=None):
         return None, None, None
 
     borough_code = bbl_str[0]
-    block_int = int(bbl_str[1:6])  # Convert to integer (API uses 3368, not 03368)
-    lot_int = int(bbl_str[6:10])   # Convert to integer (API uses 7, not 00007)
+    block_str = bbl_str[1:6]       # Keep as string with leading zeros (API expects '03368', not 3368)
+    lot_str = bbl_str[6:]          # Keep as string with leading zeros (API expects '00007', not 7)
 
     # Convert borough code to name (DOB APIs use names, not codes)
     borough_mapping = {
         '1': 'MANHATTAN',
-        '2': 'BROOKLYN',
-        '3': 'QUEENS',
-        '4': 'BRONX',
+        '2': 'BRONX',
+        '3': 'BROOKLYN',
+        '4': 'QUEENS',
         '5': 'STATEN ISLAND'
     }
 
@@ -88,9 +88,9 @@ def decompose_bbl(bbl, borough_name=None):
     # Validate consistency if borough_name provided
     if borough_name is not None:
         is_valid, expected, actual = validate_bbl_borough_consistency(bbl, borough_name)
-        return borough_name_from_bbl, block_int, lot_int, is_valid
+        return borough_name_from_bbl, block_str, lot_str, is_valid
     else:
-        return borough_name_from_bbl, block_int, lot_int
+        return borough_name_from_bbl, block_str, lot_str
 
 def query_dob_api(url, search_list, job_type="NB", search_type="bin", limit=50000):
     """
@@ -141,10 +141,10 @@ def query_dob_api(url, search_list, job_type="NB", search_type="bin", limit=5000
                 # API-specific job type filtering
                 if "ic3t-wcy2" in url:
                     # DOB Job Applications API uses "NB"
-                    query = f"job_type='NB' AND borough='{borough}' AND block={block} AND lot={lot}"
+                    query = f"job_type='NB' AND borough='{borough}' AND block='{block}' AND lot='{lot}'"
                 else:
                     # DOB NOW Job Applications API uses "New Building"
-                    query = f"job_type='New Building' AND borough='{borough}' AND block={block} AND lot={lot}"
+                    query = f"job_type='New Building' AND borough='{borough}' AND block='{block}' AND lot='{lot}'"
 
                 # Query this single BBL
                 params = {
