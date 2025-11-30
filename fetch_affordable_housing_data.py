@@ -347,7 +347,7 @@ def fetch_affordable_housing_data(limit=50000, output_file=None, use_projects_ca
         available_cols = [col for col in project_cols_to_merge if col in projects_df.columns]
         projects_subset = projects_df[['project_id'] + available_cols].copy()
 
-        # Rename columns - use project_ prefix only when there's a naming conflict
+        # Smart column naming: replace empty HPD columns, prefix only when HPD column has data
         base_rename_map = {
             'program_group': 'Program Group',
             'extended_affordability_status': 'Extended Affordability Status',
@@ -357,13 +357,22 @@ def fetch_affordable_housing_data(limit=50000, output_file=None, use_projects_ca
             'project_completion_date': 'Project Completion Date'
         }
 
-        # Check for conflicts and add project_ prefix where needed
+        # Check if HPD columns are empty or have data
         rename_map = {}
+        columns_to_drop = []  # HPD columns we'll replace with project data
+
         for orig_col, desired_name in base_rename_map.items():
             if orig_col in available_cols:
                 if desired_name in df.columns:
-                    # Conflict exists - use project_ prefix
-                    rename_map[orig_col] = f'project_{desired_name}'
+                    # Check if the existing HPD column has any real data
+                    hpd_col_data = df[desired_name].dropna()
+                    if len(hpd_col_data) == 0:
+                        # HPD column is empty - we'll replace it with project data (no prefix)
+                        rename_map[orig_col] = desired_name
+                        columns_to_drop.append(desired_name)
+                    else:
+                        # HPD column has data - keep both, use prefix for project data
+                        rename_map[orig_col] = f'project_{desired_name}'
                 else:
                     # No conflict - use clean name
                     rename_map[orig_col] = desired_name
@@ -371,6 +380,12 @@ def fetch_affordable_housing_data(limit=50000, output_file=None, use_projects_ca
         if rename_map:
             projects_subset = projects_subset.rename(columns=rename_map)
             available_cols = list(rename_map.values())
+
+        # Drop empty HPD columns that we're replacing
+        for col in columns_to_drop:
+            if col in df.columns:
+                df = df.drop(col, axis=1)
+                print(f"Replacing empty HPD column '{col}' with project data")
 
         # Debug: Check merge inputs
         print(f"Merging on 'Project ID' (HPD) with 'project_id' (projects)")
@@ -386,7 +401,7 @@ def fetch_affordable_housing_data(limit=50000, output_file=None, use_projects_ca
         if 'project_id' in df.columns:
             df = df.drop('project_id', axis=1)
 
-        # Handle merge conflicts (_x/_y columns)
+        # Handle any remaining merge conflicts (_x/_y columns)
         columns_to_drop = []
         rename_map = {}
 
@@ -395,15 +410,9 @@ def fetch_affordable_housing_data(limit=50000, output_file=None, use_projects_ca
                 # Merge conflict: keep _y (projects data), use appropriate name
                 base_name = col[:-2]
                 y_col = col[:-2] + '_y'
-                # If base_name already has project_ prefix, keep it; otherwise add it if there's a conflict
-                if base_name.startswith('project_'):
-                    final_name = base_name
-                elif base_name in df.columns and base_name != col[:-2]:
-                    # There's a conflict with existing column, add prefix
-                    final_name = f'project_{base_name}'
-                else:
-                    # No conflict, use clean name
-                    final_name = base_name
+
+                # Use the _y column name as-is (it should already be correctly named)
+                final_name = base_name  # The _y column should have the right name
                 rename_map[y_col] = final_name
                 columns_to_drop.append(col)  # Drop the _x version
 
@@ -412,9 +421,31 @@ def fetch_affordable_housing_data(limit=50000, output_file=None, use_projects_ca
             if col in df.columns:
                 df = df.drop(col, axis=1)
 
-        # Rename _y columns to clean project_ names
+        # Rename _y columns
         if rename_map:
             df = df.rename(columns=rename_map)
+
+        # Final cleanup: remove any remaining redundant project_ columns
+        columns_to_clean = []
+        for col in df.columns:
+            if col.startswith('project_'):
+                # Check if we already have the non-prefixed version with data
+                base_name = col[8:]  # Remove 'project_' prefix
+                if base_name in df.columns:
+                    base_data = df[base_name].notna().sum()
+                    project_data = df[col].notna().sum()
+                    if base_data > 0 and project_data == 0:
+                        # Base column has data, project column is empty - remove project column
+                        columns_to_clean.append(col)
+                        print(f"Removing empty project column '{col}' (base column '{base_name}' has data)")
+                    elif base_data >= project_data and project_data > 0:
+                        # Base column has equal or more data - remove project column to avoid duplication
+                        columns_to_clean.append(col)
+                        print(f"Removing duplicate project column '{col}' (base column '{base_name}' is sufficient)")
+
+        for col in columns_to_clean:
+            if col in df.columns:
+                df = df.drop(col, axis=1)
 
         # Debug: Check merge results
         project_cols = [col for col in df.columns if col.startswith('project_')]
@@ -424,6 +455,14 @@ def fetch_affordable_housing_data(limit=50000, output_file=None, use_projects_ca
             print(f"Merge complete: {merged_programs} records got project data out of {len(df)}")
             if merged_programs > 0:
                 print(f"Sample {first_col} values: {df[first_col].dropna().head(3).tolist()}")
+        else:
+            # Check how many records got enriched data in standard columns
+            enriched_cols = ['Program Group', 'Extended Affordability Status', 'Planned Tax Benefit']
+            enriched_records = 0
+            for col in enriched_cols:
+                if col in df.columns:
+                    enriched_records = max(enriched_records, df[col].notna().sum())
+            print(f"Merge complete: {enriched_records} records enriched with project data out of {len(df)}")
 
         merged_count = len(df)
         print(f"Successfully enriched {merged_count} building records with project information")
