@@ -30,7 +30,6 @@ def _default_hpd_csv() -> Path:
     """Pick the best-available HPD dataset on disk."""
     candidates = [
         Path("data/processed/Affordable_Housing_Production_by_Building_with_financing.csv"),
-        Path("data/raw/Affordable_Housing_Production_by_Building_with_financing.csv"),
         Path("data/raw/Affordable_Housing_Production_by_Building.csv"),
     ]
     for candidate in candidates:

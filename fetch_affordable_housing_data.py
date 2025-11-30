@@ -17,7 +17,7 @@ from pathlib import Path
 
 # HPD Projects data (program group information)
 HPD_PROJECTS_URL = "https://data.cityofnewyork.us/resource/hq68-rnsi.json"
-HPD_PROJECTS_CACHE_FILE = "data/processed/Affordable_Housing_Production_by_Project.csv"
+HPD_PROJECTS_CACHE_FILE = "data/raw/Affordable_Housing_Production_by_Project.csv"
 HPD_PROJECTS_CACHE_MAX_AGE_HOURS = 24  # Consider cache valid for 24 hours
 
 def fetch_hpd_projects_data(limit=50000):
