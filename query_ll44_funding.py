@@ -15,7 +15,7 @@ LL44_FUNDING_CACHE_FILE = "data/raw/ll44_funding_data.csv"
 LL44_FUNDING_CACHE_MAX_AGE_HOURS = 24  # Consider cache valid for 24 hours
 
 # LL44 eligibility data (which projects are subject to LL44)
-LL44_ELIGIBILITY_URL = "https://data.cityofnewyork.us/resource/hu6m-9cfi.json"
+LL44_ELIGIBILITY_URL = "https://data.cityofnewyork.us/resource/ucdy-byxd.json"
 LL44_ELIGIBILITY_CACHE_FILE = "data/raw/ll44_eligibility_data.csv"
 LL44_ELIGIBILITY_CACHE_MAX_AGE_HOURS = 24  # Consider cache valid for 24 hours
 
@@ -75,31 +75,23 @@ def fetch_ll44_eligibility_data(limit=50000):
     df = pd.DataFrame(all_records)
 
     # Clean up column names to match our expected format
+    # Using LL44 Projects dataset (ucdy-byxd.json) instead of Building dataset
     column_mapping = {
         'projectid': 'projectid',
-        'buildingid': 'buildingid',
-        'reportingconstructiontype': 'reporting_construction_type',
-        'borough_code': 'borough_code',
-        'boroid': 'borough',
-        'block': 'block',
-        'lot': 'lot',
-        'bin': 'bin',
-        'housenumber': 'housenumber',
-        'streetname': 'streetname',
-        'countedrentalunits': 'counted_rental_units',
-        'countedhomeownershipunits': 'counted_homeownership_units',
-        'allcountedunits': 'all_counted_units',
-        'totalbuildingunits': 'total_units',
-        'basesquarefootage': 'base_square_footage',
-        'stories': 'stories',
-        'bbl': 'bbl',
-        'community_board_cb': 'community_board',
-        'council_district': 'council_district',
-        'census_tract': 'census_tract',
-        'nta': 'nta',
-        'latitude': 'latitude',
-        'longitude': 'longitude',
-        'postcode': 'postcode'
+        'projectdwid': 'projectdwid',
+        'projectname': 'projectname',
+        'programname': 'programname',
+        'startdate': 'startdate',
+        'projectedcompletiondate': 'projectedcompletiondate',
+        'counted_rental_units': 'counted_rental_units',
+        'counted_homeownership_units': 'counted_homeownership_units',
+        'all_counted_units': 'all_counted_units',
+        'totalprojectunits': 'total_units',
+        'commercialsquarefootage': 'commercial_square_footage',
+        'borrowerlegalentityname': 'borrower_legal_entity_name',
+        'generalcontractorname': 'general_contractor_name',
+        'isdavisbacon': 'is_davis_bacon',
+        'issection220nyslaborlaw': 'is_section_220_nys_labor_law'
     }
 
     df = df.rename(columns=column_mapping)
@@ -107,7 +99,7 @@ def fetch_ll44_eligibility_data(limit=50000):
     # Convert numeric fields
     numeric_fields = [
         'counted_rental_units', 'counted_homeownership_units', 'all_counted_units',
-        'total_units', 'base_square_footage', 'stories', 'latitude', 'longitude'
+        'total_units', 'commercial_square_footage'
     ]
 
     for field in numeric_fields:
@@ -115,7 +107,7 @@ def fetch_ll44_eligibility_data(limit=50000):
             df[field] = pd.to_numeric(df[field], errors='coerce')
 
     # Convert ID fields to strings
-    string_id_fields = ['projectid', 'buildingid', 'bin', 'bbl', 'postcode', 'council_district', 'census_tract']
+    string_id_fields = ['projectid', 'projectdwid']
     for field in string_id_fields:
         if field in df.columns:
             df[field] = df[field].astype(str).replace('nan', '').replace('', pd.NA)
