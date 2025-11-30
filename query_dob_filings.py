@@ -358,7 +358,10 @@ def query_dobnow_bbl(search_list, limit=50000):
                 continue
 
             borough, block, lot = bbl_tuple
-            query = f"job_type='New Building' AND borough='{borough}' AND block='{block}' AND lot='{lot}'"
+            # DOB NOW requires unpadded block and lot values (unlike BISWEB which needs padded)
+            block_unpadded = str(int(block)) if block else block
+            lot_unpadded = str(int(lot)) if lot else lot
+            query = f"job_type='New Building' AND borough='{borough}' AND block='{block_unpadded}' AND lot='{lot_unpadded}'"
 
             params = {
                 '$where': query,
@@ -366,19 +369,19 @@ def query_dobnow_bbl(search_list, limit=50000):
             }
 
             try:
-                print(f"  Querying BBL {borough}/{block}/{lot}...")
+                print(f"  Querying BBL {borough}/{block_unpadded}/{lot_unpadded}...")
                 response = requests.get(DOB_NOW_URL, params=params, timeout=30)
                 response.raise_for_status()
                 single_data = response.json()
                 if single_data:
                     all_batch_results.extend(single_data)
-                    print(f"    Found {len(single_data)} records for BBL {borough}/{block}/{lot}")
+                    print(f"    Found {len(single_data)} records for BBL {borough}/{block_unpadded}/{lot_unpadded}")
                 else:
-                    print(f"    No records found for BBL {borough}/{block}/{lot}")
+                    print(f"    No records found for BBL {borough}/{block_unpadded}/{lot_unpadded}")
                 # Rate limiting
                 time.sleep(0.2)
             except Exception as e:
-                print(f"    Error querying BBL {borough}/{block}/{lot}: {str(e)[:50]}")
+                print(f"    Error querying BBL {borough}/{block_unpadded}/{lot_unpadded}: {str(e)[:50]}")
                 continue
 
         # Use the accumulated results for this batch
