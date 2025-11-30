@@ -14,6 +14,7 @@ This project analyzes affordable housing production in NYC, correlating HPD fina
 ### Completed Tasks
 - [x] Set up project structure with HPD and DOB data integration
 - [x] Create DOB filing queries for new construction projects
+- [x] Separate DOB query types into 4 distinct functions (BISWEB BIN, BISWEB BBL, DOBNOW BIN, DOBNOW BBL)
 - [x] Join HPD financing data with DOB application data
 - [x] Generate timeline visualizations showing DOB and HPD timelines
 
