@@ -290,9 +290,9 @@ def fetch_affordable_housing_data(limit=50000, output_file=None, use_projects_ca
         'Studio Units', '1-BR Units', '2-BR Units', '3-BR Units', '4-BR Units',
         '5-BR Units', '6-BR+ Units', 'Unknown-BR Units', 'Counted Rental Units',
         'Counted Homeownership Units', 'All Counted Units', 'Total Units',
-        # Project-level columns (added via enrichment)
-        'project_program_group', 'project_extended_affordability_status',
-        'project_prevailing_wage_status', 'project_planned_tax_benefit'
+        # Project-level columns (added via enrichment with project_ prefix when needed)
+        'project_Program Group', 'project_Extended Affordability Status',
+        'project_Prevailing Wage Status', 'project_Planned Tax Benefit'
     ]
 
     # Ensure all expected columns exist
@@ -347,14 +347,26 @@ def fetch_affordable_housing_data(limit=50000, output_file=None, use_projects_ca
         available_cols = [col for col in project_cols_to_merge if col in projects_df.columns]
         projects_subset = projects_df[['project_id'] + available_cols].copy()
 
-        # Rename columns to avoid conflicts with existing HPD columns
+        # Rename columns - use project_ prefix only when there's a naming conflict
+        base_rename_map = {
+            'program_group': 'Program Group',
+            'extended_affordability_status': 'Extended Affordability Status',
+            'prevailing_wage_status': 'Prevailing Wage Status',
+            'planned_tax_benefit': 'Planned Tax Benefit',
+            'project_start_date': 'Project Start Date',
+            'project_completion_date': 'Project Completion Date'
+        }
+
+        # Check for conflicts and add project_ prefix where needed
         rename_map = {}
-        for col in available_cols:
-            new_name = f'project_{col}'
-            # Avoid double "project_" prefix
-            if col.startswith('project_'):
-                new_name = col
-            rename_map[col] = new_name
+        for orig_col, desired_name in base_rename_map.items():
+            if orig_col in available_cols:
+                if desired_name in df.columns:
+                    # Conflict exists - use project_ prefix
+                    rename_map[orig_col] = f'project_{desired_name}'
+                else:
+                    # No conflict - use clean name
+                    rename_map[orig_col] = desired_name
 
         if rename_map:
             projects_subset = projects_subset.rename(columns=rename_map)
@@ -380,12 +392,19 @@ def fetch_affordable_housing_data(limit=50000, output_file=None, use_projects_ca
 
         for col in df.columns:
             if col.endswith('_x') and col[:-2] + '_y' in df.columns:
-                # Merge conflict: keep _y (projects data), rename to project_ prefix
+                # Merge conflict: keep _y (projects data), use appropriate name
                 base_name = col[:-2]
                 y_col = col[:-2] + '_y'
-                # Don't add 'project_' prefix if base_name already starts with it
-                new_name = base_name if base_name.startswith('project_') else f'project_{base_name}'
-                rename_map[y_col] = new_name
+                # If base_name already has project_ prefix, keep it; otherwise add it if there's a conflict
+                if base_name.startswith('project_'):
+                    final_name = base_name
+                elif base_name in df.columns and base_name != col[:-2]:
+                    # There's a conflict with existing column, add prefix
+                    final_name = f'project_{base_name}'
+                else:
+                    # No conflict, use clean name
+                    final_name = base_name
+                rename_map[y_col] = final_name
                 columns_to_drop.append(col)  # Drop the _x version
 
         # Drop conflicting _x columns
