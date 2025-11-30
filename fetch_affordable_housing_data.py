@@ -327,19 +327,6 @@ def fetch_affordable_housing_data(limit=50000, output_file=None, use_projects_ca
         if field in df.columns:
             df[field] = pd.to_numeric(df[field], errors='coerce')
 
-    # Filter to New Construction only
-    if 'Reporting Construction Type' in df.columns:
-        original_count = len(df)
-        df = df[df['Reporting Construction Type'] == 'New Construction'].copy()
-        filtered_count = len(df)
-
-        print(f"\n🏗️ Filtered to New Construction only:")
-        print(f"  Original: {original_count:,} projects")
-        print(f"  Filtered: {filtered_count:,} projects ({filtered_count/original_count*100:.1f}%)")
-        print(f"  Removed: {original_count - filtered_count:,} non-new construction projects ({(original_count - filtered_count)/original_count*100:.1f}%)")
-    else:
-        print("\n⚠️ Warning: 'Reporting Construction Type' column not found - cannot filter to New Construction")
-
     # Enrich with project-level information (program_group, etc.)
     print("\nEnriching building data with project-level information...")
     try:
