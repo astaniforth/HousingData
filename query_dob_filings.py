@@ -28,17 +28,18 @@ def pad_block(block):
 
 def pad_lot(lot):
     """
-    Convert lot to string without padding.
+    Pad lot to 5 digits with leading zeros.
 
     Args:
         lot: Lot value (string or numeric)
 
     Returns:
-        str: Lot as string without zero padding
+        str: 5-digit lot with leading zeros
     """
     if pd.isna(lot):
         return None
-    return str(int(float(lot)))
+    lot_str = str(int(float(lot)))
+    return lot_str.zfill(5)
 
 def create_bbl(borough_code, block, lot):
     """
@@ -128,7 +129,7 @@ def decompose_bbl(bbl, borough_name=None):
     block_raw = bbl_str[1:6]  # positions 1-5 (5 digits)
     lot_raw = bbl_str[6:]     # positions 6-9 (4 digits)
 
-    # Ensure proper padding (block: 5 digits, lot: not zero-padded)
+    # Ensure proper padding (block: 5 digits, lot: 5 digits)
     block_str = pad_block(block_raw)
     lot_str = pad_lot(lot_raw)
 
