@@ -424,11 +424,15 @@ def query_dob_filings(search_file_path, output_path=None, use_bbl_fallback=True)
 
     print(f"Found {len(bins)} BINs to search initially")
 
-    # Step 1: Query by BIN for all properties
+    # Step 1: Query by BIN for all properties (both BISWEB and DOB NOW)
     print("=" * 70)
-    print("STEP 1: QUERYING DOB APIs BY BIN")
+    print("STEP 1A: QUERYING DOB BISWEB BY BIN")
     print("=" * 70)
     dob_filings_bin = query_dob_bisweb_bin(bins)
+
+    print("=" * 70)
+    print("STEP 1B: QUERYING DOB NOW BY BIN")
+    print("=" * 70)
     dob_now_filings_bin = query_dobnow_bin(bins)
 
     # Identify which BINs didn't get matches
@@ -449,9 +453,13 @@ def query_dob_filings(search_file_path, output_path=None, use_bbl_fallback=True)
     dob_filings_bbl = pd.DataFrame()
     dob_now_filings_bbl = pd.DataFrame()
 
+    # Step 2: For BINs that didn't match, try BBL search on both APIs
+    dob_filings_bbl = pd.DataFrame()
+    dob_now_filings_bbl = pd.DataFrame()
+
     if use_bbl_fallback and len(unmatched_bins) > 0 and search_df is not None and 'BBL' in search_df.columns:
             print("\n" + "=" * 70)
-            print("STEP 2: QUERYING DOB APIs BY BBL (FALLBACK)")
+            print("STEP 2A: QUERYING DOB BISWEB BY BBL (FALLBACK)")
             print("=" * 70)
 
             # Get BBLs for unmatched BINs
@@ -496,6 +504,10 @@ def query_dob_filings(search_file_path, output_path=None, use_bbl_fallback=True)
             if bbl_tuples:
                 print(f"Searching {len(bbl_tuples)} BBLs for unmatched BINs...")
                 dob_filings_bbl = query_dob_bisweb_bbl(bbl_tuples)
+
+                print("\n" + "=" * 70)
+                print("STEP 2B: QUERYING DOB NOW BY BBL (FALLBACK)")
+                print("=" * 70)
                 dob_now_filings_bbl = query_dobnow_bbl(bbl_tuples)
 
                 # Track BBL fallback results
