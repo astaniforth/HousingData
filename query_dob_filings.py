@@ -386,6 +386,81 @@ def get_condo_billing_bbl(base_bbl):
         return None
 
 
+def query_other_lots_in_block(borough, block, base_lot, address_hint=None, limit=50000):
+    """
+    Query DOB BISWEB API for permits on other lots in the same block.
+    
+    This is a fallback when the base lot doesn't match. It searches for
+    any New Building permits in the same block, which can catch cases
+    where permits are filed under different lots (e.g., subdivisions,
+    lot consolidations, or administrative differences).
+    
+    Args:
+        borough: Borough name (e.g., 'BRONX')
+        block: Block number (padded to 5 digits)
+        base_lot: Base lot number that didn't match (for exclusion)
+        address_hint: Optional address string to filter results (e.g., '655 MORRIS AVENUE')
+        limit: Maximum number of records to retrieve
+    
+    Returns:
+        DataFrame with matching records, or empty DataFrame if none found
+    """
+    print(f"\nSearching other lots in block {block} (excluding lot {base_lot})")
+    
+    # Query for any NB permits in this block
+    query = f"job_type='NB' AND borough='{borough}' AND block='{block}'"
+    
+    params = {
+        '$where': query,
+        '$limit': limit
+    }
+    
+    try:
+        response = requests.get(DOB_BISWEB_URL, params=params, timeout=30)
+        response.raise_for_status()
+        data = response.json()
+        
+        if not data:
+            print(f"  No permits found in block {block}")
+            return pd.DataFrame()
+        
+        df = pd.DataFrame(data)
+        
+        # Exclude the base lot
+        if 'lot' in df.columns:
+            df = df[df['lot'] != base_lot]
+        
+        # If address hint provided, try to filter by address
+        if address_hint and len(df) > 0:
+            address_upper = address_hint.upper()
+            # Check if any records match the address
+            address_cols = ['house__', 'street_name', 'house_no']
+            matching = pd.Series([False] * len(df))
+            for col in address_cols:
+                if col in df.columns:
+                    matching |= df[col].astype(str).str.upper().str.contains(address_upper, na=False, regex=False)
+            
+            if matching.any():
+                df = df[matching]
+                print(f"  Found {len(df)} permits on other lots matching address '{address_hint}'")
+            else:
+                print(f"  Found {len(df)} permits on other lots (address '{address_hint}' not found)")
+        else:
+            print(f"  Found {len(df)} permits on other lots in block {block}")
+        
+        if len(df) > 0:
+            # Show which lots were found
+            if 'lot' in df.columns:
+                unique_lots = sorted(df['lot'].unique())
+                print(f"  Lots with permits: {', '.join(unique_lots[:10])}")
+        
+        return df
+        
+    except Exception as e:
+        print(f"  Error searching other lots in block: {str(e)[:50]}")
+        return pd.DataFrame()
+
+
 def query_condo_lots_for_bbl(borough, block, base_lot, base_bbl=None, limit=50000):
     """
     Query DOB BISWEB API for condo billing BBL when base lot doesn't match.
