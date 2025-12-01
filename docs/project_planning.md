@@ -15,6 +15,8 @@ This project analyzes affordable housing production in NYC, correlating HPD fina
 - [x] Set up project structure with HPD and DOB data integration
 - [x] Create DOB filing queries for new construction projects
 - [x] Separate DOB query types into 4 distinct functions (BISWEB BIN, BISWEB BBL, DOBNOW BIN, DOBNOW BBL)
+- [x] Implement specific query execution order: BISWEB BIN → DOB NOW BIN → BISWEB BBL (fallback) → DOB NOW BBL (fallback)
+- [x] Ensure proper padding of block and lot values in BBL decomposition for API compatibility
 - [x] Join HPD financing data with DOB application data
 - [x] Generate timeline visualizations showing DOB and HPD timelines
 
@@ -40,6 +42,7 @@ This project analyzes affordable housing production in NYC, correlating HPD fina
 
 ### Completed Tasks
 - [x] Create Jupyter notebook version of workflow with dataframe views
+- [x] Refactor notebook to use in-memory DataFrames instead of file I/O between cells
 
 ### Future Enhancements
 - [ ] Add permit issuance dates
