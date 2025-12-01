@@ -10,6 +10,7 @@ from data_quality import quality_tracker, validate_bbl_borough_consistency
 # NYC Open Data API endpoints
 DOB_BISWEB_URL = "https://data.cityofnewyork.us/resource/ic3t-wcy2.json"
 DOB_NOW_URL = "https://data.cityofnewyork.us/resource/w9ak-ipjd.json"
+CONDO_UNITS_URL = "https://data.cityofnewyork.us/resource/eguu-7ie3.json"
 
 
 def pad_block(block):
@@ -332,56 +333,132 @@ def query_dobnow_bin(search_list, limit=50000):
         return pd.DataFrame()
 
 
-def query_condo_lots_for_bbl(borough, block, base_lot, limit=50000):
+def get_condo_unit_bbls(base_bbl):
+    """
+    Query NYC Condominium Units API to find all unit BBLs for a base BBL.
+    
+    Uses the Digital Tax Map: Condominium Units dataset to find the relationship
+    between base BBLs and their condo unit BBLs.
+    
+    Args:
+        base_bbl: Base BBL as integer or string (e.g., 2024410001)
+    
+    Returns:
+        List of unit BBL tuples (borough, block, lot) for DOB queries
+    """
+    try:
+        base_bbl_str = str(int(float(base_bbl))).zfill(10)
+        
+        # Query condo units API for this base BBL
+        params = {
+            '$where': f"condo_base_bbl='{base_bbl_str}'",
+            '$limit': 50000
+        }
+        
+        response = requests.get(CONDO_UNITS_URL, params=params, timeout=30)
+        response.raise_for_status()
+        data = response.json()
+        
+        if not data:
+            return []
+        
+        # Extract unit BBLs and convert to (borough, block, lot) tuples
+        unit_bbls = []
+        borough_map = {'1': 'MANHATTAN', '2': 'BRONX', '3': 'BROOKLYN', '4': 'QUEENS', '5': 'STATEN ISLAND'}
+        
+        for record in data:
+            unit_bbl = record.get('unit_bbl')
+            unit_boro = record.get('unit_boro')
+            unit_block = record.get('unit_block')
+            unit_lot = record.get('unit_lot')
+            
+            if unit_boro and unit_block and unit_lot:
+                borough_name = borough_map.get(str(unit_boro))
+                if borough_name:
+                    # Pad block and lot to 5 digits
+                    block_padded = pad_block(unit_block)
+                    lot_padded = pad_lot(unit_lot)
+                    unit_bbls.append((borough_name, block_padded, lot_padded))
+        
+        return list(set(unit_bbls))  # Deduplicate
+        
+    except Exception as e:
+        print(f"    Error querying condo units API for BBL {base_bbl}: {str(e)[:50]}")
+        return []
+
+
+def query_condo_lots_for_bbl(borough, block, base_lot, base_bbl=None, limit=50000):
     """
     Query DOB BISWEB API for condo unit lots when base lot doesn't match.
     
-    In NYC, when properties are converted to condominiums, permits are often
-    filed under condo unit lots (e.g., 7501, 7502) instead of the base lot.
-    This function queries common condo unit lots (7501-7510) in the same
-    borough/block to find matches.
+    Uses the NYC Condominium Units API to find actual condo unit BBLs for a
+    given base BBL, then queries DOB for permits on those unit BBLs.
     
     Args:
         borough: Borough name (e.g., 'BRONX')
         block: Block number (padded to 5 digits)
         base_lot: Base lot number that didn't match
+        base_bbl: Base BBL as integer or string (optional, will be constructed if not provided)
         limit: Maximum number of records to retrieve
     
     Returns:
         DataFrame with matching records, or empty DataFrame if none found
     """
-    # Common condo unit lot numbers
-    condo_lots = [f"{i:05d}" for i in range(7501, 7511)]  # 7501-7510
+    # Construct base BBL if not provided
+    if base_bbl is None:
+        borough_map = {'MANHATTAN': '1', 'BRONX': '2', 'BROOKLYN': '3', 'QUEENS': '4', 'STATEN ISLAND': '5'}
+        borough_code = borough_map.get(borough.upper())
+        if not borough_code:
+            return pd.DataFrame()
+        
+        block_clean = str(int(float(block.replace('.0', ''))))
+        lot_clean = str(int(float(base_lot.replace('.0', ''))))
+        base_bbl = borough_code + block_clean.zfill(5) + lot_clean.zfill(4)
     
-    print(f"\nQuerying condo unit lots for {borough}/{block}/{base_lot}")
-    print(f"  Trying condo lots: {', '.join(condo_lots)}")
+    print(f"\nQuerying condo unit lots for {borough}/{block}/{base_lot} (base BBL: {base_bbl})")
     
+    # Get actual condo unit BBLs from the API
+    unit_bbl_tuples = get_condo_unit_bbls(base_bbl)
+    
+    if not unit_bbl_tuples:
+        print(f"  No condo units found for base BBL {base_bbl}")
+        return pd.DataFrame()
+    
+    print(f"  Found {len(unit_bbl_tuples)} condo unit BBLs")
+    
+    # Query DOB for each unit BBL
     all_results = []
+    batch_size = 5
     
-    for condo_lot in condo_lots:
-        query = f"job_type='NB' AND borough='{borough}' AND block='{block}' AND lot='{condo_lot}'"
+    for i in range(0, len(unit_bbl_tuples), batch_size):
+        batch = unit_bbl_tuples[i:i+batch_size]
         
-        params = {
-            '$where': query,
-            '$limit': limit
-        }
-        
-        try:
-            response = requests.get(DOB_BISWEB_URL, params=params, timeout=30)
-            response.raise_for_status()
-            data = response.json()
-            if data:
-                all_results.extend(data)
-                print(f"    Found {len(data)} records on condo lot {condo_lot}")
-            time.sleep(0.1)  # Rate limiting
-        except Exception as e:
-            continue
+        for unit_tuple in batch:
+            unit_borough, unit_block, unit_lot = unit_tuple
+            query = f"job_type='NB' AND borough='{unit_borough}' AND block='{unit_block}' AND lot='{unit_lot}'"
+            
+            params = {
+                '$where': query,
+                '$limit': limit
+            }
+            
+            try:
+                response = requests.get(DOB_BISWEB_URL, params=params, timeout=30)
+                response.raise_for_status()
+                data = response.json()
+                if data:
+                    all_results.extend(data)
+                    print(f"    Found {len(data)} records on unit lot {unit_lot}")
+                time.sleep(0.1)  # Rate limiting
+            except Exception as e:
+                continue
     
     if all_results:
         df = pd.DataFrame(all_results)
-        print(f"  Total condo lot records found: {len(df)}")
+        print(f"  Total condo unit records found: {len(df)}")
         return df
     else:
+        print(f"  No DOB records found on condo unit lots")
         return pd.DataFrame()
 
 
