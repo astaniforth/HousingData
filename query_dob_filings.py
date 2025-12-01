@@ -386,81 +386,6 @@ def get_condo_billing_bbl(base_bbl):
         return None
 
 
-def query_other_lots_in_block(borough, block, base_lot, address_hint=None, limit=50000):
-    """
-    Query DOB BISWEB API for permits on other lots in the same block.
-    
-    This is a fallback when the base lot doesn't match. It searches for
-    any New Building permits in the same block, which can catch cases
-    where permits are filed under different lots (e.g., subdivisions,
-    lot consolidations, or administrative differences).
-    
-    Args:
-        borough: Borough name (e.g., 'BRONX')
-        block: Block number (padded to 5 digits)
-        base_lot: Base lot number that didn't match (for exclusion)
-        address_hint: Optional address string to filter results (e.g., '655 MORRIS AVENUE')
-        limit: Maximum number of records to retrieve
-    
-    Returns:
-        DataFrame with matching records, or empty DataFrame if none found
-    """
-    print(f"\nSearching other lots in block {block} (excluding lot {base_lot})")
-    
-    # Query for any NB permits in this block
-    query = f"job_type='NB' AND borough='{borough}' AND block='{block}'"
-    
-    params = {
-        '$where': query,
-        '$limit': limit
-    }
-    
-    try:
-        response = requests.get(DOB_BISWEB_URL, params=params, timeout=30)
-        response.raise_for_status()
-        data = response.json()
-        
-        if not data:
-            print(f"  No permits found in block {block}")
-            return pd.DataFrame()
-        
-        df = pd.DataFrame(data)
-        
-        # Exclude the base lot
-        if 'lot' in df.columns:
-            df = df[df['lot'] != base_lot]
-        
-        # If address hint provided, try to filter by address
-        if address_hint and len(df) > 0:
-            address_upper = address_hint.upper()
-            # Check if any records match the address
-            address_cols = ['house__', 'street_name', 'house_no']
-            matching = pd.Series([False] * len(df))
-            for col in address_cols:
-                if col in df.columns:
-                    matching |= df[col].astype(str).str.upper().str.contains(address_upper, na=False, regex=False)
-            
-            if matching.any():
-                df = df[matching]
-                print(f"  Found {len(df)} permits on other lots matching address '{address_hint}'")
-            else:
-                print(f"  Found {len(df)} permits on other lots (address '{address_hint}' not found)")
-        else:
-            print(f"  Found {len(df)} permits on other lots in block {block}")
-        
-        if len(df) > 0:
-            # Show which lots were found
-            if 'lot' in df.columns:
-                unique_lots = sorted(df['lot'].unique())
-                print(f"  Lots with permits: {', '.join(unique_lots[:10])}")
-        
-        return df
-        
-    except Exception as e:
-        print(f"  Error searching other lots in block: {str(e)[:50]}")
-        return pd.DataFrame()
-
-
 def query_condo_lots_for_bbl(borough, block, base_lot, base_bbl=None, limit=50000):
     """
     Query DOB BISWEB API for condo billing BBL when base lot doesn't match.
@@ -523,6 +448,82 @@ def query_condo_lots_for_bbl(borough, block, base_lot, base_bbl=None, limit=5000
             return pd.DataFrame()
     except Exception as e:
         print(f"  Error querying DOB for billing BBL: {str(e)[:50]}")
+        return pd.DataFrame()
+
+
+def query_dob_by_address(address_list, limit=50000):
+    """
+    Query DOB BISWEB and DOB NOW APIs by address as a last fallback.
+    
+    This searches for New Building permits by house number and street name
+    when BIN and BBL queries have failed.
+    
+    Args:
+        address_list: List of address tuples (borough, house_number, street_name)
+                     e.g., [('BRONX', '655', 'MORRIS AVENUE'), ...]
+        limit: Maximum number of records to retrieve per address
+    
+    Returns:
+        DataFrame with matching records from both APIs
+    """
+    if not address_list:
+        return pd.DataFrame()
+    
+    print("\nQuerying DOB APIs by address (last fallback)")
+    print(f"Number of addresses to check: {len(address_list)}")
+    
+    all_results = []
+    
+    for borough, house_number, street_name in address_list:
+        if not borough or not house_number or not street_name:
+            continue
+        
+        # Clean up address components
+        house_clean = str(house_number).strip()
+        street_clean = str(street_name).strip().upper()
+        
+        print(f"  Searching: {house_clean} {street_clean}, {borough}")
+        
+        # Query BISWEB
+        try:
+            # BISWEB uses house__ and street_name columns
+            query_bisweb = f"job_type='NB' AND borough='{borough}' AND house__='{house_clean}' AND street_name LIKE '%{street_clean}%'"
+            params_bisweb = {
+                '$where': query_bisweb,
+                '$limit': limit
+            }
+            response_bisweb = requests.get(DOB_BISWEB_URL, params=params_bisweb, timeout=30)
+            response_bisweb.raise_for_status()
+            data_bisweb = response_bisweb.json()
+            if data_bisweb:
+                all_results.extend(data_bisweb)
+                print(f"    BISWEB: Found {len(data_bisweb)} records")
+        except Exception as e:
+            print(f"    BISWEB: Error - {str(e)[:50]}")
+        
+        # Query DOB NOW
+        try:
+            # DOB NOW uses house_no and street_name columns
+            query_dobnow = f"job_type='New Building' AND borough='{borough}' AND house_no='{house_clean}' AND street_name LIKE '%{street_clean}%'"
+            params_dobnow = {
+                '$where': query_dobnow,
+                '$limit': limit
+            }
+            response_dobnow = requests.get(DOB_NOW_URL, params=params_dobnow, timeout=30)
+            response_dobnow.raise_for_status()
+            data_dobnow = response_dobnow.json()
+            if data_dobnow:
+                all_results.extend(data_dobnow)
+                print(f"    DOB NOW: Found {len(data_dobnow)} records")
+        except Exception as e:
+            print(f"    DOB NOW: Error - {str(e)[:50]}")
+    
+    if all_results:
+        df = pd.DataFrame(all_results)
+        print(f"\nTotal records found by address: {len(df)}")
+        return df
+    else:
+        print("\nNo records found by address")
         return pd.DataFrame()
 
 
