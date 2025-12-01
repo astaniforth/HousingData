@@ -11,6 +11,7 @@ from data_quality import quality_tracker, validate_bbl_borough_consistency
 DOB_BISWEB_URL = "https://data.cityofnewyork.us/resource/ic3t-wcy2.json"
 DOB_NOW_URL = "https://data.cityofnewyork.us/resource/w9ak-ipjd.json"
 
+
 def pad_block(block):
     """
     Pad block to 5 digits with leading zeros.
@@ -328,6 +329,59 @@ def query_dobnow_bin(search_list, limit=50000):
         return df
     else:
         print("\nNo records found")
+        return pd.DataFrame()
+
+
+def query_condo_lots_for_bbl(borough, block, base_lot, limit=50000):
+    """
+    Query DOB BISWEB API for condo unit lots when base lot doesn't match.
+    
+    In NYC, when properties are converted to condominiums, permits are often
+    filed under condo unit lots (e.g., 7501, 7502) instead of the base lot.
+    This function queries common condo unit lots (7501-7510) in the same
+    borough/block to find matches.
+    
+    Args:
+        borough: Borough name (e.g., 'BRONX')
+        block: Block number (padded to 5 digits)
+        base_lot: Base lot number that didn't match
+        limit: Maximum number of records to retrieve
+    
+    Returns:
+        DataFrame with matching records, or empty DataFrame if none found
+    """
+    # Common condo unit lot numbers
+    condo_lots = [f"{i:05d}" for i in range(7501, 7511)]  # 7501-7510
+    
+    print(f"\nQuerying condo unit lots for {borough}/{block}/{base_lot}")
+    print(f"  Trying condo lots: {', '.join(condo_lots)}")
+    
+    all_results = []
+    
+    for condo_lot in condo_lots:
+        query = f"job_type='NB' AND borough='{borough}' AND block='{block}' AND lot='{condo_lot}'"
+        
+        params = {
+            '$where': query,
+            '$limit': limit
+        }
+        
+        try:
+            response = requests.get(DOB_BISWEB_URL, params=params, timeout=30)
+            response.raise_for_status()
+            data = response.json()
+            if data:
+                all_results.extend(data)
+                print(f"    Found {len(data)} records on condo lot {condo_lot}")
+            time.sleep(0.1)  # Rate limiting
+        except Exception as e:
+            continue
+    
+    if all_results:
+        df = pd.DataFrame(all_results)
+        print(f"  Total condo lot records found: {len(df)}")
+        return df
+    else:
         return pd.DataFrame()
 
 
