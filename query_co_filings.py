@@ -3,6 +3,7 @@ import requests
 import time
 import sys
 import os
+from pathlib import Path
 from urllib.parse import quote
 
 # NYC Open Data API endpoints for Certificate of Occupancy
@@ -166,13 +167,15 @@ def query_co_filings(bin_file_path, output_path=None):
             print(f"Sample BINs: {list(unique_bins)[:20]}")
 
     # Save results
+    processed_dir = Path('data/processed')
+    processed_dir.mkdir(parents=True, exist_ok=True)
+    
     if output_path is None:
-        from pathlib import Path
         # Save to data/processed/ folder
-        processed_dir = Path('data/processed')
-        processed_dir.mkdir(parents=True, exist_ok=True)
         base_name = Path(bin_file_path).stem
         output_path = processed_dir / f"{base_name}_co_filings.csv"
+    else:
+        output_path = Path(output_path)
 
     combined.to_csv(output_path, index=False)
     print(f"\nResults saved to: {output_path}")
