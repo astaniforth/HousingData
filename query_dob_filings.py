@@ -10,7 +10,7 @@ from data_quality import quality_tracker, validate_bbl_borough_consistency
 # NYC Open Data API endpoints
 DOB_BISWEB_URL = "https://data.cityofnewyork.us/resource/ic3t-wcy2.json"
 DOB_NOW_URL = "https://data.cityofnewyork.us/resource/w9ak-ipjd.json"
-CONDO_UNITS_URL = "https://data.cityofnewyork.us/resource/eguu-7ie3.json"
+CONDO_BILLING_URL = "https://data.cityofnewyork.us/resource/p8u6-a6it.json"  # Digital Tax Map: Condominiums
 
 
 def pad_block(block):
@@ -333,66 +333,65 @@ def query_dobnow_bin(search_list, limit=50000):
         return pd.DataFrame()
 
 
-def get_condo_unit_bbls(base_bbl):
+def get_condo_billing_bbl(base_bbl):
     """
-    Query NYC Condominium Units API to find all unit BBLs for a base BBL.
+    Query NYC Condominiums API to find the billing BBL for a base BBL.
     
-    Uses the Digital Tax Map: Condominium Units dataset to find the relationship
-    between base BBLs and their condo unit BBLs.
+    Uses the Digital Tax Map: Condominiums dataset which maps base BBLs
+    to their billing BBLs (typically lot 7501 format).
     
     Args:
         base_bbl: Base BBL as integer or string (e.g., 2024410001)
     
     Returns:
-        List of unit BBL tuples (borough, block, lot) for DOB queries
+        Tuple (borough, block, lot) for the billing BBL, or None if not found
     """
     try:
         base_bbl_str = str(int(float(base_bbl))).zfill(10)
         
-        # Query condo units API for this base BBL
+        # Query condominiums API for this base BBL
         params = {
             '$where': f"condo_base_bbl='{base_bbl_str}'",
-            '$limit': 50000
+            '$limit': 1
         }
         
-        response = requests.get(CONDO_UNITS_URL, params=params, timeout=30)
+        response = requests.get(CONDO_BILLING_URL, params=params, timeout=30)
         response.raise_for_status()
         data = response.json()
         
         if not data:
-            return []
+            return None
         
-        # Extract unit BBLs and convert to (borough, block, lot) tuples
-        unit_bbls = []
-        borough_map = {'1': 'MANHATTAN', '2': 'BRONX', '3': 'BROOKLYN', '4': 'QUEENS', '5': 'STATEN ISLAND'}
+        # Get the billing BBL from the first record
+        record = data[0]
+        billing_bbl = record.get('condo_billing_bbl')
         
-        for record in data:
-            unit_bbl = record.get('unit_bbl')
-            unit_boro = record.get('unit_boro')
-            unit_block = record.get('unit_block')
-            unit_lot = record.get('unit_lot')
-            
-            if unit_boro and unit_block and unit_lot:
-                borough_name = borough_map.get(str(unit_boro))
-                if borough_name:
-                    # Pad block and lot to 5 digits
-                    block_padded = pad_block(unit_block)
-                    lot_padded = pad_lot(unit_lot)
-                    unit_bbls.append((borough_name, block_padded, lot_padded))
+        if not billing_bbl:
+            return None
         
-        return list(set(unit_bbls))  # Deduplicate
+        # Decompose billing BBL to (borough, block, lot)
+        result = decompose_bbl(int(billing_bbl))
+        
+        if result and len(result) >= 3:
+            borough, block, lot = result[:3]
+            # Pad block and lot to 5 digits
+            block_padded = pad_block(block)
+            lot_padded = pad_lot(lot)
+            return (borough, block_padded, lot_padded)
+        
+        return None
         
     except Exception as e:
-        print(f"    Error querying condo units API for BBL {base_bbl}: {str(e)[:50]}")
-        return []
+        print(f"    Error querying condominiums API for BBL {base_bbl}: {str(e)[:50]}")
+        return None
 
 
 def query_condo_lots_for_bbl(borough, block, base_lot, base_bbl=None, limit=50000):
     """
-    Query DOB BISWEB API for condo unit lots when base lot doesn't match.
+    Query DOB BISWEB API for condo billing BBL when base lot doesn't match.
     
-    Uses the NYC Condominium Units API to find actual condo unit BBLs for a
-    given base BBL, then queries DOB for permits on those unit BBLs.
+    Uses the NYC Condominiums API to find the billing BBL (typically lot 7501)
+    for a given base BBL, then queries DOB for permits on that billing BBL.
     
     Args:
         borough: Borough name (e.g., 'BRONX')
@@ -415,50 +414,40 @@ def query_condo_lots_for_bbl(borough, block, base_lot, base_bbl=None, limit=5000
         lot_clean = str(int(float(base_lot.replace('.0', ''))))
         base_bbl = borough_code + block_clean.zfill(5) + lot_clean.zfill(4)
     
-    print(f"\nQuerying condo unit lots for {borough}/{block}/{base_lot} (base BBL: {base_bbl})")
+    print(f"\nQuerying condo billing BBL for {borough}/{block}/{base_lot} (base BBL: {base_bbl})")
     
-    # Get actual condo unit BBLs from the API
-    unit_bbl_tuples = get_condo_unit_bbls(base_bbl)
+    # Get billing BBL from the Condominiums API
+    billing_bbl_tuple = get_condo_billing_bbl(base_bbl)
     
-    if not unit_bbl_tuples:
-        print(f"  No condo units found for base BBL {base_bbl}")
+    if not billing_bbl_tuple:
+        print(f"  No condo billing BBL found for base BBL {base_bbl}")
         return pd.DataFrame()
     
-    print(f"  Found {len(unit_bbl_tuples)} condo unit BBLs")
+    billing_borough, billing_block, billing_lot = billing_bbl_tuple
+    print(f"  Found billing BBL: {billing_borough}/{billing_block}/{billing_lot}")
     
-    # Query DOB for each unit BBL
-    all_results = []
-    batch_size = 5
+    # Query DOB for the billing BBL
+    query = f"job_type='NB' AND borough='{billing_borough}' AND block='{billing_block}' AND lot='{billing_lot}'"
     
-    for i in range(0, len(unit_bbl_tuples), batch_size):
-        batch = unit_bbl_tuples[i:i+batch_size]
+    params = {
+        '$where': query,
+        '$limit': limit
+    }
+    
+    try:
+        response = requests.get(DOB_BISWEB_URL, params=params, timeout=30)
+        response.raise_for_status()
+        data = response.json()
         
-        for unit_tuple in batch:
-            unit_borough, unit_block, unit_lot = unit_tuple
-            query = f"job_type='NB' AND borough='{unit_borough}' AND block='{unit_block}' AND lot='{unit_lot}'"
-            
-            params = {
-                '$where': query,
-                '$limit': limit
-            }
-            
-            try:
-                response = requests.get(DOB_BISWEB_URL, params=params, timeout=30)
-                response.raise_for_status()
-                data = response.json()
-                if data:
-                    all_results.extend(data)
-                    print(f"    Found {len(data)} records on unit lot {unit_lot}")
-                time.sleep(0.1)  # Rate limiting
-            except Exception as e:
-                continue
-    
-    if all_results:
-        df = pd.DataFrame(all_results)
-        print(f"  Total condo unit records found: {len(df)}")
-        return df
-    else:
-        print(f"  No DOB records found on condo unit lots")
+        if data:
+            df = pd.DataFrame(data)
+            print(f"  Found {len(df)} records on billing BBL {billing_borough}/{billing_block}/{billing_lot}")
+            return df
+        else:
+            print(f"  No DOB records found on billing BBL")
+            return pd.DataFrame()
+    except Exception as e:
+        print(f"  Error querying DOB for billing BBL: {str(e)[:50]}")
         return pd.DataFrame()
 
 
