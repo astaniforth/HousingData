@@ -19,7 +19,7 @@ NameError in run_workflow.ipynb cell: `name 'bad_bins' is not defined`
 Code snippet was copied from elsewhere or left incomplete, referencing a variable that should have been defined but wasn't.
 
 **Fix:**
-Simplified the filtering logic to remove the undefined `bad_bins` reference. The cell now simply shows all duplicated BINs without trying to exclude "bad" ones.
+Updated the filtering logic to use the existing `is_bad_bin()` function instead of the undefined `bad_bins` variable. The cell now properly excludes placeholder/bad BINs while showing duplicated ones.
 
 **Code Change:**
 ```python
@@ -31,9 +31,15 @@ hpd_multifamily_finance_new_construction_df[
 
 # After (fixed):
 hpd_multifamily_finance_new_construction_df[
-    hpd_multifamily_finance_new_construction_df["BIN"].duplicated(keep=False)
+    (hpd_multifamily_finance_new_construction_df["BIN"].duplicated(keep=False)) &
+    (~hpd_multifamily_finance_new_construction_df["BIN"].astype(str).apply(is_bad_bin))
 ]
 ```
+
+**What is_bad_bin does:**
+The `is_bad_bin()` function identifies placeholder BINs by checking for:
+- Null/NaN values
+- Borough placeholder BINs: '1000000', '2000000', '3000000', '4000000', '5000000'
 
 **Testing:**
 - Cell now executes without errors
