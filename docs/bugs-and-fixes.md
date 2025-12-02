@@ -176,10 +176,31 @@ DOB CO API (bs8b-p36w) for BIN 3427387:
 - 1 record: job 321593101, dated 2025-10-30, type "Final"
 
 **Fix Needed:**
-The CO date extraction logic needs to:
-1. Ensure both `c_of_o_issuance_date` (DOB NOW) and `c_o_issue_date` (DOB legacy) are being parsed and compared
-2. When grouping by BIN to find earliest date, ensure records from both APIs are included
-3. Consider filtering for "Initial" COs only, or at minimum ensure we're getting the true earliest date across all CO records
+The CO date extraction logic in the notebook cell that joins CO data with HPD data has a bug in the column detection:
+
+```python
+# BUGGY CODE:
+for col in co_filings_df.columns:
+    if 'date' in col.lower() and 'issue' in col.lower():
+        co_date_cols.append(col)
+```
+
+This only finds columns with both 'date' AND 'issue', which matches `c_o_issue_date` but not `c_of_o_issuance_date`.
+
+**Fix:**
+Change the column detection to also check for 'issuance':
+
+```python
+# FIXED CODE:
+for col in co_filings_df.columns:
+    col_lower = col.lower()
+    if 'date' in col_lower and ('issue' in col_lower or 'issuance' in col_lower):
+        co_date_cols.append(col)
+```
+
+This will correctly find both:
+- `c_o_issue_date` (DOB CO API - legacy)  
+- `c_of_o_issuance_date` (DOB NOW CO API)
 
 **Testing:**
 - Debug script created: `testing_debugging/debug_co_64608.py`
