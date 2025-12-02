@@ -214,7 +214,7 @@ def query_dob_bisweb_bin(search_list, limit=50000):
 
 def query_dob_bisweb_bbl(search_list, limit=50000):
     """
-    Query DOB BISWEB API for job filings matching BBL components.
+    Query DOB BISWEB API for job filings matching BBL components using batched OR queries.
 
     Args:
         search_list: List of BBL tuples (borough, block, lot) to search for
@@ -228,42 +228,50 @@ def query_dob_bisweb_bbl(search_list, limit=50000):
     print(f"Number of BBLs to check: {len(search_list)}")
 
     all_results = []
-    batch_size = 5  # Smaller batches for BBL searches to avoid API limits
+    batch_size = 50  # Larger batches now that we're using OR queries
 
     for i in range(0, len(search_list), batch_size):
         batch = search_list[i:i+batch_size]
-        all_batch_results = []
 
+        # Build batched OR query
+        conditions = []
         for bbl_tuple in batch:
             if not bbl_tuple or len(bbl_tuple) != 3:
                 continue
 
             borough, block, lot = bbl_tuple
-            query = f"job_type='NB' AND borough='{borough}' AND block='{block}' AND lot='{lot}'"
+            condition = f"(job_type='NB' AND borough='{borough}' AND block='{block}' AND lot='{lot}')"
+            conditions.append(condition)
 
-            params = {
-                '$where': query,
-                '$limit': limit
-            }
+        if not conditions:
+            continue
 
-            try:
-                print(f"  Querying BBL {borough}/{block}/{lot}...")
-                response = requests.get(DOB_BISWEB_URL, params=params, timeout=30)
-                response.raise_for_status()
-                single_data = response.json()
-                if single_data:
-                    all_batch_results.extend(single_data)
-                    print(f"    Found {len(single_data)} records for BBL {borough}/{block}/{lot}")
-                else:
-                    print(f"    No records found for BBL {borough}/{block}/{lot}")
-                # Rate limiting
-                time.sleep(0.2)
-            except Exception as e:
-                print(f"    Error querying BBL {borough}/{block}/{lot}: {str(e)[:50]}")
-                continue
+        batched_query = " OR ".join(conditions)
 
-        # Use the accumulated results for this batch
-        all_results.extend(all_batch_results)
+        params = {
+            '$where': batched_query,
+            '$limit': limit
+        }
+
+        try:
+            print(f"  Querying batch {i//batch_size + 1} ({len(conditions)} BBLs)...")
+            response = requests.get(DOB_BISWEB_URL, params=params, timeout=30)
+            response.raise_for_status()
+            data = response.json()
+            if data:
+                all_results.extend(data)
+                print(f"    Found {len(data)} records")
+            else:
+                print("    No records found")
+
+            # Rate limiting
+            time.sleep(0.1)
+
+        except Exception as e:
+            print(f"    Error querying batch: {str(e)}")
+            if hasattr(e, 'response') and e.response is not None:
+                print(f"    Response: {e.response.text[:200]}")
+            continue
 
     if all_results:
         df = pd.DataFrame(all_results)
@@ -529,7 +537,7 @@ def query_dob_by_address(address_list, limit=50000):
 
 def query_dobnow_bbl(search_list, limit=50000):
     """
-    Query DOB NOW API for job filings matching BBL components.
+    Query DOB NOW API for job filings matching BBL components using batched OR queries.
 
     Args:
         search_list: List of BBL tuples (borough, block, lot) to search for
@@ -543,12 +551,13 @@ def query_dobnow_bbl(search_list, limit=50000):
     print(f"Number of BBLs to check: {len(search_list)}")
 
     all_results = []
-    batch_size = 5  # Smaller batches for BBL searches to avoid API limits
+    batch_size = 50  # Larger batches now that we're using OR queries
 
     for i in range(0, len(search_list), batch_size):
         batch = search_list[i:i+batch_size]
-        all_batch_results = []
 
+        # Build batched OR query
+        conditions = []
         for bbl_tuple in batch:
             if not bbl_tuple or len(bbl_tuple) != 3:
                 continue
@@ -557,31 +566,38 @@ def query_dobnow_bbl(search_list, limit=50000):
             # DOB NOW requires unpadded block and lot values (unlike BISWEB which needs padded)
             block_unpadded = str(int(block)) if block else block
             lot_unpadded = str(int(lot)) if lot else lot
-            query = f"job_type='New Building' AND borough='{borough}' AND block='{block_unpadded}' AND lot='{lot_unpadded}'"
+            condition = f"(job_type='New Building' AND borough='{borough}' AND block='{block_unpadded}' AND lot='{lot_unpadded}')"
+            conditions.append(condition)
 
-            params = {
-                '$where': query,
-                '$limit': limit
-            }
+        if not conditions:
+            continue
 
-            try:
-                print(f"  Querying BBL {borough}/{block_unpadded}/{lot_unpadded}...")
-                response = requests.get(DOB_NOW_URL, params=params, timeout=30)
-                response.raise_for_status()
-                single_data = response.json()
-                if single_data:
-                    all_batch_results.extend(single_data)
-                    print(f"    Found {len(single_data)} records for BBL {borough}/{block_unpadded}/{lot_unpadded}")
-                else:
-                    print(f"    No records found for BBL {borough}/{block_unpadded}/{lot_unpadded}")
-                # Rate limiting
-                time.sleep(0.2)
-            except Exception as e:
-                print(f"    Error querying BBL {borough}/{block_unpadded}/{lot_unpadded}: {str(e)[:50]}")
-                continue
+        batched_query = " OR ".join(conditions)
 
-        # Use the accumulated results for this batch
-        all_results.extend(all_batch_results)
+        params = {
+            '$where': batched_query,
+            '$limit': limit
+        }
+
+        try:
+            print(f"  Querying batch {i//batch_size + 1} ({len(conditions)} BBLs)...")
+            response = requests.get(DOB_NOW_URL, params=params, timeout=30)
+            response.raise_for_status()
+            data = response.json()
+            if data:
+                all_results.extend(data)
+                print(f"    Found {len(data)} records")
+            else:
+                print("    No records found")
+
+            # Rate limiting
+            time.sleep(0.1)
+
+        except Exception as e:
+            print(f"    Error querying batch: {str(e)}")
+            if hasattr(e, 'response') and e.response is not None:
+                print(f"    Response: {e.response.text[:200]}")
+            continue
 
     if all_results:
         df = pd.DataFrame(all_results)
