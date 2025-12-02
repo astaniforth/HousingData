@@ -144,3 +144,53 @@ After selecting the most recent application per BIN (to avoid withdrawn/abandone
 - Should work correctly when the most recent application has the earliest date
 - Should work correctly when an older application has the earliest date
 
+---
+
+## C of O Date Not Showing Earliest Date - Missing Join Logic
+
+**Status: Open**
+**Date: Dec 2, 2025**
+
+**Bug Description:**
+The C of O dates in the output CSV are not showing the earliest dates. For example, Project 64608 (142-150 SOUTH PORTLAND, BIN 3427387) shows October 30, 2025 as the earliest CO date, but the actual earliest CO (Initial CO) was issued on February 28, 2024.
+
+**Symptoms:**
+- The `earliest_co_date` column in `output/hpd_multifamily_finance_new_construction_with_all_dates.csv` shows incorrect (later) dates
+- For BIN 3427387: showing `2025-10-30` instead of `2024-02-28`
+- The output CSV file exists but appears to be from an old run
+
+**Root Cause:**
+The current `run_workflow.ipynb` notebook is **missing the CO data join logic** that existed in a previous version (archive/run_workflow.ipynb.bak2). The notebook:
+1. Queries CO data in Step 3B (creates `co_filings_df`)
+2. Creates timeline files in Step 4 using `create_separate_timelines()`
+3. BUT never joins the CO data with the HPD dataframe to add the `earliest_co_date` column
+4. The output CSV files are from a previous run and are now stale
+
+Additionally, there's a date parsing issue:
+- DOB NOW CO API (`pkdm-hqz6`) returns dates like `02/28/2024 14:34:05` in the `c_of_o_issuance_date` column
+- DOB CO API (`bs8b-p36w`) returns dates like `2025-10-30T00:00:00.000` in the `c_o_issue_date` column
+- Both formats need to be parsed correctly and compared to find the earliest date
+
+**Investigation Results:**
+Querying the APIs directly for BIN 3427387 shows:
+- DOB NOW CO API: 9 records including Initial CO on `02/28/2024 14:34:05`
+- DOB CO API: 1 record with Final CO on `2025-10-30T00:00:00.000`
+- The correct earliest CO date should be `2024-02-28`
+
+**Fix:**
+Need to add a new cell to the notebook (after Step 3B, before Step 4) that:
+1. Identifies all CO date columns in `co_filings_df` (look for columns with 'date' and 'issue' or 'issuance')
+2. Converts all date columns to datetime, handling both MM/DD/YYYY HH:MM:SS and ISO formats
+3. For each row in `co_filings_df`, finds the earliest date among all CO date columns
+4. Groups by `bin_normalized` to get the minimum `earliest_co_date` per BIN
+5. Merges this with the HPD dataframe on BIN (with BBL fallback for rows without BIN matches)
+6. Exports to `output/hpd_multifamily_finance_new_construction_with_all_dates.csv`
+
+**Code Changes Needed:**
+Add CO join cell based on the logic from `archive/run_workflow.ipynb.bak2` lines 6547-6650, with proper date parsing to handle both date formats.
+
+**Testing:**
+- For BIN 3427387, should correctly identify `2024-02-28` as the earliest CO date (from Initial CO)
+- Should work correctly for BINs with only one CO record
+- Should handle both date formats correctly
+
