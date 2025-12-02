@@ -148,8 +148,9 @@ After selecting the most recent application per BIN (to avoid withdrawn/abandone
 
 ## C of O Dates Missing Initial CO from DOB NOW API
 
-**Status: Open**
+**Status: Fixed**
 **Date: Dec 2, 2025**
+**Commit SHA: [to be added]**
 
 **Bug Description:**
 The earliest C of O date is not being correctly extracted when records exist in both DOB NOW CO API (pkdm-hqz6) and DOB CO API (bs8b-p36w). The workflow is only showing the Final CO date from the legacy DOB CO API, missing the earlier Initial CO date from the DOB NOW API.
@@ -161,10 +162,12 @@ The earliest C of O date is not being correctly extracted when records exist in 
 - The actual first/initial CO should be 02/28/2024, not 2025-10-30
 
 **Root Cause:**
-After querying both CO APIs (DOB NOW CO and DOB CO), the workflow combines them but doesn't properly handle:
-1. Different date column names (`c_of_o_issuance_date` vs `c_o_issue_date`)
-2. Filtering for Initial vs Final COs when determining the earliest date
-3. The groupby().min() operation might not be considering all records from both APIs correctly
+The CO date column detection code in the notebook was checking for columns containing both 'date' AND 'issue':
+```python
+if 'date' in col.lower() and 'issue' in col.lower():
+```
+
+This matched `c_o_issue_date` (DOB CO API - legacy) but not `c_of_o_issuance_date` (DOB NOW API), because 'issuance' ≠ 'issue'. All DOB NOW CO dates were being completely ignored.
 
 **API Data Found:**
 DOB NOW CO API (pkdm-hqz6) for BIN 3427387:
@@ -175,11 +178,14 @@ DOB NOW CO API (pkdm-hqz6) for BIN 3427387:
 DOB CO API (bs8b-p36w) for BIN 3427387:
 - 1 record: job 321593101, dated 2025-10-30, type "Final"
 
-**Fix Needed:**
-The CO date extraction logic in the notebook cell that joins CO data with HPD data has a bug in the column detection:
+**Fix:**
+Changed the column detection in cell 21 of run_workflow.ipynb to also check for 'issuance':
+
+**Fix:**
+Changed the column detection in cell 21 of run_workflow.ipynb to also check for 'issuance':
 
 ```python
-# BUGGY CODE:
+# BEFORE (buggy):
 for col in co_filings_df.columns:
     if 'date' in col.lower() and 'issue' in col.lower():
         co_date_cols.append(col)
@@ -191,19 +197,20 @@ This only finds columns with both 'date' AND 'issue', which matches `c_o_issue_d
 Change the column detection to also check for 'issuance':
 
 ```python
-# FIXED CODE:
+```python
+# AFTER (fixed):
 for col in co_filings_df.columns:
     col_lower = col.lower()
     if 'date' in col_lower and ('issue' in col_lower or 'issuance' in col_lower):
         co_date_cols.append(col)
 ```
 
-This will correctly find both:
+This now correctly finds both:
 - `c_o_issue_date` (DOB CO API - legacy)  
 - `c_of_o_issuance_date` (DOB NOW CO API)
 
 **Testing:**
-- Debug script created: `testing_debugging/debug_co_64608.py`
-- For BIN 3427387, should show `earliest_co_date` as 2024-02-28, not 2025-10-30
-- Verify other buildings aren't similarly affected
+- Debug script created: `testing_debugging/debug_co_64608.py` confirms both APIs have data and the column names
+- For BIN 3427387, should now show `earliest_co_date` as 2024-02-28 (Initial CO), not 2025-10-30 (Final CO)
+- The fix ensures all C of O dates from both APIs are considered when finding the earliest date
 
