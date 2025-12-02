@@ -80,6 +80,45 @@ Changed the code to use the existing `bbl_normalized` column instead of creating
 - BBL matching should now work for records that only have borough/block/lot information
 - Proper formatting ensures all BBLs are 10-digit zero-padded strings for consistent matching
 
+## Earliest DOB Date Not Correctly Extracted Across All Applications
+
+**Status: Open**
+**Date: Dec 2, 2025**
+
+**Bug Description:**
+When multiple DOB applications exist for the same BIN, the code selects the most recent application (to avoid withdrawn/abandoned ones), but then only finds the earliest date from that selected application. This misses earlier dates that exist in older applications for the same BIN.
+
+**Symptoms:**
+- For Building ID 927748, BIN 2129098, the `earliest_dob_date_source` correctly shows `pre__filing_date`
+- But `earliest_dob_date` shows `2013-12-31` (from the `paid` column) instead of `2011-06-14` (from `pre__filing_date`)
+- The actual `pre__filing_date` for job 220124381 is `2011-06-14`, which should be the earliest date
+
+**Root Cause:**
+The current logic:
+1. Filters to most recent application per BIN (based on `application_date`)
+2. Finds the earliest date FROM THAT APPLICATION only
+3. If the most recent application doesn't have the earliest `pre__filing_date` (because it's in an older application), we miss it
+
+**Example Scenario:**
+- Application 1 (older): `pre__filing_date = 2011-06-14`, `paid = 2013-12-31`
+- Application 2 (newer): `pre__filing_date = None`, `paid = 2014-01-15`
+- Current logic selects Application 2 (most recent), then finds earliest date from Application 2 = `2014-01-15`
+- But the actual earliest date across ALL applications is `2011-06-14` from Application 1
+
+**Fix:**
+After selecting the most recent application per BIN (to avoid withdrawn/abandoned applications), we should find the earliest date across ALL applications for that BIN, not just from the selected application. This ensures we get the true earliest milestone date while still filtering out withdrawn applications.
+
+**Code Changes Needed:**
+1. After `groupby('bin_normalized').first()` to get the most recent application, store the BIN values
+2. For each BIN, filter the original dataframe to all applications for that BIN (not just the most recent one)
+3. Find the earliest date across ALL applications for that BIN
+4. Use that earliest date (and its source column) as the final result
+
+**Testing:**
+- For BIN 2129098, should correctly identify `2011-06-14` as the earliest date from `pre__filing_date`
+- Should work correctly when the most recent application has the earliest date
+- Should work correctly when an older application has the earliest date
+
 ## DOB NOW Date Columns Not Being Detected
 
 **Status: Fixed**
