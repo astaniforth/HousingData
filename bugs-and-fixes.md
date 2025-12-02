@@ -80,6 +80,38 @@ Changed the code to use the existing `bbl_normalized` column instead of creating
 - BBL matching should now work for records that only have borough/block/lot information
 - Proper formatting ensures all BBLs are 10-digit zero-padded strings for consistent matching
 
+## doc__ Column Type Mismatch Causing Filter Failure
+
+**Status: Fixed**
+**Date: Dec 2, 2025**
+
+**Bug Description:**
+The `doc__` column in the DOB BISWEB data is stored as integers (1, 2, 3) but the filter was comparing against the string `'01'`. This caused the filter `doc__ == '01'` to return 0 records, meaning ALL doc__ values were included instead of just doc__ = 01.
+
+**Symptoms:**
+- For Building ID 927748, BIN 2129098, the `earliest_dob_date` showed 2013-12-31 instead of 2011-06-14
+- The `earliest_dob_date_source` correctly showed `pre__filing_date`, but the date value was from doc__ = 02 (2013-12-31) instead of doc__ = 01 (2011-06-14)
+- The API returns multiple records for job 220124381 with different doc__ values:
+  - doc__ = 01: pre__filing_date = 06/14/2011 (correct)
+  - doc__ = 02: pre__filing_date = 12/31/2013 (wrong one being selected)
+  - doc__ = 03: pre__filing_date = 12/31/2013 (wrong one being selected)
+
+**Root Cause:**
+The CSV file stores `doc__` as integers (1, 2, 3) but the code compared against string `'01'`:
+```python
+dob_df['doc__'] == '01'  # Returns False because 1 != '01'
+```
+
+**Fix:**
+Changed the comparison to convert the integer to a zero-padded string:
+```python
+dob_df['doc__'].astype(str).str.zfill(2) == '01'  # 1 -> '01' -> True
+```
+
+**Testing:**
+- For BIN 2129098, should now correctly get pre__filing_date = 2011-06-14 from doc__ = 01
+- Filter now correctly excludes doc__ = 02 and 03 records
+
 ## Earliest DOB Date Not Correctly Extracted Across All Applications
 
 **Status: Open**
