@@ -80,3 +80,41 @@ Changed the code to use the existing `bbl_normalized` column instead of creating
 - BBL matching should now work for records that only have borough/block/lot information
 - Proper formatting ensures all BBLs are 10-digit zero-padded strings for consistent matching
 
+## DOB NOW Date Columns Not Being Detected
+
+**Status: Fixed**
+**Date: Dec 2, 2025**
+
+**Bug Description:**
+DOB NOW data was not being picked up in the HPD-DOB join workflow. The date column detection logic was only looking for space-separated column names like 'filing date' and 'first approved date', but DOB NOW API returns columns with underscores like 'filing_date', 'first_permit_date', and 'approved_date'.
+
+**Symptoms:**
+- DOB NOW records were present in the combined dataframe but their dates were not being extracted
+- `earliest_dob_date` was NaT for rows that should have matched DOB NOW records
+- Date column detection was only finding BISWEB date columns, not DOB NOW columns
+
+**Root Cause:**
+The date column detection logic in the join cell was checking for exact matches with space-separated names:
+- `'filing date'`
+- `'first approved date'`
+
+But DOB NOW API actually returns columns with underscores:
+- `filing_date`
+- `first_permit_date`
+- `approved_date`
+- `first_approved_date`
+
+**Fix:**
+Updated the date column detection to check for both space-separated and underscore-separated versions of DOB NOW date columns. Also added partial matching to catch variations in column names.
+
+**Code Changes:**
+1. Expanded DOB NOW date column detection to check for both space and underscore versions
+2. Added checks for: `filing_date`, `first_permit_date`, `first_approved_date`, `approved_date`
+3. Added partial matching using `startswith()` to catch column name variations
+4. Added debug output to verify DOB NOW data presence and show which date columns are found
+
+**Testing:**
+- Date column detection now finds DOB NOW columns with underscores
+- Debug output helps verify DOB NOW data is included in the combined dataframe
+- Both BISWEB and DOB NOW date columns are now properly detected and used
+
