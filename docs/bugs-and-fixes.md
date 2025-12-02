@@ -73,38 +73,35 @@ Changed the code to use the existing `bbl_normalized` column instead of creating
 - BBL matching should now work for records that only have borough/block/lot information
 - Proper formatting ensures all BBLs are 10-digit zero-padded strings for consistent matching
 
-## DOB Date Filtering Too Aggressive - All BINs Lost
+## DOB Date Filtering - Type Mismatch in doc__ Comparison
 
 **Status: Fixed**
 **Date: Dec 2, 2025**
 
 **Bug Description:**
-The doc__ = 1 (BISWEB) and I1 suffix (DOB NOW) filters were applied globally before grouping by BIN. This removed ALL records for BINs that didn't have doc 01 or I1 records, resulting in NaT for all earliest_dob_date values.
+The doc__ comparison was using integer comparison (`doc__ == 1`) but the column may contain values that need zero-padded string comparison (`'01'`).
 
 **Symptoms:**
 - All earliest_dob_date values were NaT
-- Output showed "Filtered to 50 records" from 3394 (98.5% loss!)
-- No BIN overlap between filtered DOB data and HPD data
+- doc__ = 1 filter might not match records with different type representation
 
 **Root Cause:**
-The filtering logic was:
-1. Filter ALL DOB data to doc__ = 1 (BISWEB) or I1 suffix (DOB NOW)
-2. Then groupby BIN
-
-This removed BINs entirely if they had no doc 01 / I1 records in the data.
+The doc__ column value type varies. Need to compare as zero-padded string for consistency.
 
 **Fix:**
-Changed to a "preference" system instead of hard filtering:
-1. Mark records as `is_initial_filing` (doc__ = 1 or I1 suffix)
-2. Sort by `is_initial_filing` DESC, then `application_date` DESC
-3. Groupby takes first record per BIN (prefers initial filing if available)
+Changed comparison from:
+```python
+dob_df['doc__'] == 1
+```
+To:
+```python
+dob_df['doc__'].astype(str).str.zfill(2) == '01'
+```
 
-This keeps the preference for initial filings while preserving BINs that only have other document types.
+This converts the value to a zero-padded string (1 -> '01') for consistent matching.
 
 **Testing:**
-- Debug script in testing_debugging/debug_dob_date_filter.py demonstrates the fix
-- Before: Only 1 BIN with dates (others filtered out)
-- After: All BINs with dates (prefers initial filings where available)
+- Debug script in testing_debugging/debug_doc01_bins.py can investigate data
 
 ---
 
