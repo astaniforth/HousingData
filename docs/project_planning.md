@@ -49,6 +49,7 @@ This project analyzes affordable housing production in NYC, correlating HPD fina
 - [x] Move testing/debugging files to `testing_debugging/` folder
 - [x] Move archived/obsolete files to `archive/` folder
 - [x] Remove data_quality.py dependencies from active workflow files
+- [x] Consolidate all imports to top of notebook instead of scattered throughout cells
 
 ### Future Enhancements
 - [ ] Add permit issuance dates

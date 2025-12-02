@@ -42,5 +42,7 @@ new_construction_missing_bins.csv
 .DS_Store
 Thumbs.db
 
-docs/
-data/
+# Data files (keep docs/ but ignore large data files)
+data/raw/
+data/processed/
+data/external/
