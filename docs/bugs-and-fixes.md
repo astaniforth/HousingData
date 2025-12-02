@@ -181,23 +181,12 @@ DOB CO API (bs8b-p36w) for BIN 3427387:
 **Fix:**
 Changed the column detection in cell 21 of run_workflow.ipynb to also check for 'issuance':
 
-**Fix:**
-Changed the column detection in cell 21 of run_workflow.ipynb to also check for 'issuance':
-
 ```python
 # BEFORE (buggy):
 for col in co_filings_df.columns:
     if 'date' in col.lower() and 'issue' in col.lower():
         co_date_cols.append(col)
-```
 
-This only finds columns with both 'date' AND 'issue', which matches `c_o_issue_date` but not `c_of_o_issuance_date`.
-
-**Fix:**
-Change the column detection to also check for 'issuance':
-
-```python
-```python
 # AFTER (fixed):
 for col in co_filings_df.columns:
     col_lower = col.lower()
@@ -213,4 +202,73 @@ This now correctly finds both:
 - Debug script created: `testing_debugging/debug_co_64608.py` confirms both APIs have data and the column names
 - For BIN 3427387, should now show `earliest_co_date` as 2024-02-28 (Initial CO), not 2025-10-30 (Final CO)
 - The fix ensures all C of O dates from both APIs are considered when finding the earliest date
+
+---
+
+## DOB Query Excludes Shared BINs
+
+**Status: Fixed**
+**Date: Dec 2, 2025**
+**Commit SHA: [to be added]**
+
+**Bug Description:**
+Buildings that share a BIN with another building are not getting DOB data. The DOB query step only queries BINs that appear exactly once in the dataset, excluding any BIN that's used by multiple buildings.
+
+**Symptoms:**
+- Building 44409 (Crotona Terrace II) - BIN 2124684 - No DOB data ❌
+- Building 50104 (Crotona Terrace I) - **SAME BIN 2124684** - No DOB data ❌
+- Both buildings also share BBL 2029847503
+- Job 220412541 exists in DOB BISWEB API with correct data (doc__='01', job_type='NB', pre__filing_date='10/28/2014')
+- When queried directly, the job is returned and passes all filters
+- But the notebook doesn't query this BIN at all because it's shared
+
+**Root Cause:**
+In the "Step 3A: BIN/BBL Prep and Filtering" cell (cell 11), the code filters BINs to only include unique ones:
+
+```python
+bin_counts = hpd_multifamily_finance_new_construction_df['BIN'].value_counts()
+unique_bins = bin_counts[bin_counts == 1].index.tolist()  # Only BINs that appear ONCE
+...
+if not is_bad_bin(b_clean) and b_clean in unique_bins:  # BUG: excludes duplicated BINs!
+    bins.append(b_clean)
+```
+
+This was likely intended to deduplicate the BIN list for the API query, but it accidentally **excludes** BINs that are shared by multiple buildings in the dataset.
+
+**Example:**
+- BIN 2124684 is used by 2 buildings (44409 and 50104) - they're phases of the same development
+- `bin_counts[2124684] = 2`
+- `unique_bins` doesn't include 2124684 (because count ≠ 1)
+- DOB query never queries BIN 2124684
+- Both buildings get no DOB data
+
+This affects any multi-phase development where HPD tracks phases as separate projects but DOB tracks them under one BIN/BBL.
+
+**Fix:**
+Changed the logic in cell 11 to use a set for deduplication (so we only query each BIN once) but don't exclude BINs just because they're shared:
+
+```python
+# BEFORE (buggy):
+bin_counts = hpd_multifamily_finance_new_construction_df['BIN'].value_counts()
+unique_bins = bin_counts[bin_counts == 1].index.tolist()
+bins = []
+for b in hpd_multifamily_finance_new_construction_df['BIN'].dropna():
+    b_clean = ...
+    if not is_bad_bin(b_clean) and b_clean in unique_bins:  # BUG!
+        bins.append(b_clean)
+
+# AFTER (fixed):
+bins_set = set()  # Use a set to automatically deduplicate
+for b in hpd_multifamily_finance_new_construction_df['BIN'].dropna():
+    b_clean = ...
+    if not is_bad_bin(b_clean):
+        bins_set.add(b_clean)
+bins = sorted(list(bins_set))
+```
+
+**Testing:**
+- For BIN 2124684, should now query DOB and get job 220412541
+- Both buildings 44409 and 50104 should get `earliest_dob_date = 2014-10-28`
+- Both buildings share the same BIN/BBL, so both will get the same DOB dates
+- Verify other shared BINs also get DOB data
 
