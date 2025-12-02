@@ -150,7 +150,7 @@ After selecting the most recent application per BIN (to avoid withdrawn/abandone
 
 **Status: Fixed**
 **Date: Dec 2, 2025**
-**Commit SHA: [to be added]**
+**Commit SHA: 62c28c4**
 
 **Bug Description:**
 The earliest C of O date is not being correctly extracted when records exist in both DOB NOW CO API (pkdm-hqz6) and DOB CO API (bs8b-p36w). The workflow is only showing the Final CO date from the legacy DOB CO API, missing the earlier Initial CO date from the DOB NOW API.
