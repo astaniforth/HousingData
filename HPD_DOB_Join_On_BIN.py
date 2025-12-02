@@ -3,7 +3,6 @@ import re
 import sys
 import os
 from datetime import datetime
-from data_quality import quality_tracker
 
 def extract_date(date_value):
     """Extract date string, trying to parse various formats."""
@@ -187,27 +186,9 @@ def create_timeline(building_csv, filings_csv, co_filings_csv=None, output_path=
         financing_filter: Filter by financing type ('HPD Financed', 'Privately Financed', or None for all)
     """
 
-    # Start data quality tracking
-    quality_tracker.start_processing()
-
     print(f"Reading building data (HPD) from: {building_csv}")
     df_buildings = pd.read_csv(building_csv)
     print(f"Total buildings: {len(df_buildings):,}")
-
-    # Analyze HPD data quality (current dataset)
-    dataset_name = "Filtered_HPD" if financing_filter else "Current_HPD"
-    quality_tracker.analyze_hpd_data(df_buildings, dataset_name)
-
-    # Also analyze the full HPD dataset if available and different
-    full_hpd_path = "data/raw/Affordable_Housing_Production_by_Building.csv"
-    if os.path.exists(full_hpd_path) and building_csv != full_hpd_path:
-        print(f"\nReading full HPD dataset for comprehensive analysis: {full_hpd_path}")
-        try:
-            df_full_hpd = pd.read_csv(full_hpd_path)
-            print(f"Full HPD dataset: {len(df_full_hpd):,} records")
-            quality_tracker.analyze_hpd_data(df_full_hpd, "Full_HPD_Dataset")
-        except Exception as e:
-            print(f"Warning: Could not analyze full HPD dataset: {e}")
 
     # Apply financing filter if specified
     if financing_filter:
@@ -334,21 +315,6 @@ def create_timeline(building_csv, filings_csv, co_filings_csv=None, output_path=
     
     df_timeline_output.to_csv(output_path, index=False)
     print(f"\n\nTimeline saved to: {output_path}")
-
-    # End processing and generate data quality report
-    quality_tracker.end_processing()
-
-    # Generate timestamped filename based on input files
-    from pathlib import Path
-    base_filename = Path(building_csv).stem.replace('Affordable_Housing_Production_by_Building', 'housing_data')
-    if financing_filter:
-        base_filename += f"_{financing_filter.lower().replace(' ', '_')}"
-    base_name = base_filename
-
-    report_filename = quality_tracker.save_report_to_file(base_name)
-    quality_tracker.print_report()
-
-    print(f"📊 Data quality report also saved to: {report_filename}")
 
     return df_timeline_output
 

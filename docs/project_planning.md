@@ -44,6 +44,12 @@ This project analyzes affordable housing production in NYC, correlating HPD fina
 - [x] Create Jupyter notebook version of workflow with dataframe views
 - [x] Refactor notebook to use in-memory DataFrames instead of file I/O between cells
 
+### Repository Organization
+- [x] Clean up repository structure
+- [x] Move testing/debugging files to `testing_debugging/` folder
+- [x] Move archived/obsolete files to `archive/` folder
+- [x] Remove data_quality.py dependencies from active workflow files
+
 ### Future Enhancements
 - [ ] Add permit issuance dates
 - [ ] Include building inspection data

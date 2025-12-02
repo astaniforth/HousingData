@@ -5,7 +5,6 @@ import sys
 import os
 from pathlib import Path
 from urllib.parse import quote
-from data_quality import quality_tracker, validate_bbl_borough_consistency
 
 # NYC Open Data API endpoints
 DOB_BISWEB_URL = "https://data.cityofnewyork.us/resource/ic3t-wcy2.json"
@@ -670,7 +669,6 @@ def query_dob_filings(search_file_path, output_path=None, use_bbl_fallback=True)
 
     # Track BIN matching performance
     all_matched_bins = bisweb_matched_bins.union(dobnow_matched_bins)
-    quality_tracker.record_bin_matching(len(bins), len(all_matched_bins))
 
     # Step 2: BBL fallback - separate for each API
     dob_filings_bbl = pd.DataFrame()
@@ -724,7 +722,6 @@ def query_dob_filings(search_file_path, output_path=None, use_bbl_fallback=True)
             if bbl_tuples:
                 print(f"Searching {len(bbl_tuples)} BBLs for BISWEB BIN unmatched...")
                 dob_filings_bbl = query_dob_bisweb_bbl(bbl_tuples)
-                quality_tracker.record_bbl_fallback(len(bbl_tuples), len(dob_filings_bbl))
 
     # Step 2B: DOB NOW BBL fallback for BINs that didn't match in DOB NOW BIN
     if use_bbl_fallback and len(dobnow_unmatched_bins) > 0 and search_df is not None and 'BBL' in search_df.columns:
@@ -774,7 +771,6 @@ def query_dob_filings(search_file_path, output_path=None, use_bbl_fallback=True)
             if bbl_tuples_dobnow:
                 print(f"Searching {len(bbl_tuples_dobnow)} BBLs for DOB NOW BIN unmatched...")
                 dob_now_filings_bbl = query_dobnow_bbl(bbl_tuples_dobnow)
-                quality_tracker.record_bbl_fallback(len(bbl_tuples_dobnow), len(dob_now_filings_bbl))
 
     # Combine all results
     dob_filings = pd.concat([dob_filings_bin, dob_filings_bbl], ignore_index=True) if not dob_filings_bbl.empty else dob_filings_bin
@@ -834,9 +830,6 @@ def query_dob_filings(search_file_path, output_path=None, use_bbl_fallback=True)
     
     print(f"\nTotal combined records: {len(combined)}")
 
-    # Analyze DOB data quality
-    quality_tracker.analyze_dob_data(combined)
-
     # Show unique BINs found
     if 'bin_normalized' in combined.columns:
         unique_bins = combined['bin_normalized'].dropna().unique()
@@ -868,13 +861,6 @@ def query_dob_filings(search_file_path, output_path=None, use_bbl_fallback=True)
         summary = summary.sort_values('Number_of_Filings', ascending=False)
         summary.to_csv(summary_path, index=False)
         print(f"Summary by BIN saved to: {summary_path}")
-
-    # Generate data quality report
-    report_base_name = input_stem.replace('_bins', '_dob_search')
-    report_filename = quality_tracker.save_report_to_file(report_base_name)
-    quality_tracker.print_report()
-
-    print(f"📊 Data quality report also saved to: {report_filename}")
     
     # Show sample records
     print("\n" + "=" * 70)
