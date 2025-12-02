@@ -1,57 +1,96 @@
-# Housing Data Analysis
+# NYC Housing Data Analysis
 
-Pipeline for connecting HPD affordable housing production data to DOB filings and Certificates of Occupancy (CO), and visualizing timelines by BIN.
+Interactive Jupyter notebook for analyzing NYC affordable housing production—correlating HPD financing data with DOB permit filings and Certificates of Occupancy.
 
-## Quick Start (orchestrated run)
-- Install deps: `pip install pandas matplotlib requests beautifulsoup4 plotly`
-- Run everything with defaults: `python run_workflow.py`
-  - Automatically verifies/fetches latest HPD data, adds financing classification, enriches with DOB/CO data, and generates timeline charts
-- Useful flags:
-  - `--refresh-hpd` force fetch fresh HPD data from NYC Open Data
-  - `--bin-file all_construction_bins.txt` supply your own BIN list for CO queries
-  - `--skip-dob` / `--skip-co` / `--skip-join` / `--skip-charts` reuse existing outputs
-  - `--dob-search-source my_bins.csv` run DOB search against a custom CSV (enables BBL fallback if it has BIN + BBL columns)
+## Quick Start
 
-Outputs land in `data/raw/`, `data/processed/`, `data_quality_reports/`, and `output/`.
+```bash
+pip install pandas matplotlib requests beautifulsoup4 plotly
+jupyter notebook run_workflow.ipynb
+```
 
-## Workflow Steps
-1. **Data Verification & Fetching**: Verify local HPD data matches NYC Open Data API (record count + sample comparison); fetch fresh data if needed. Raw data saved to `data/raw/`.
-2. **Financing Classification**: Query LL44 funding database to classify projects as HPD-financed vs privately-financed. Processed data saved to `data/processed/`.
-3. **DOB/CO Data Enrichment**: Query DOB APIs for New Building filings and Certificate of Occupancy data using BINs/BBLs. Enriched data saved to `data/processed/`.
-4. **Timeline Charts**: Generate multi-page PDF timeline charts showing HPD production dates, DOB filings, and CO events by financing type. Charts saved to `output/`.
-5. **Data Quality Reporting**: `data_quality.py` tracks completeness, validation metrics, and generates Sankey diagrams showing data flow through the pipeline. Reports saved to `data_quality_reports/`.
+## What the Notebook Does
 
-## Key Scripts (manual usage)
-- `fetch_affordable_housing_data.py` — fetch HPD data; `--verify` option compares local data with API
-- `query_ll44_funding.py <hpd_csv>` — adds `Financing Type` based on LL44 funding (outputs to `data/processed/`)
-- `query_dob_filings.py <bins_or_csv>` — DOB NB/New Building filings with BBL fallback (outputs to `data/processed/`)
-- `query_co_filings.py <bin_list.txt>` — CO filings for BINs (outputs to `data/processed/`)
-- `HPD_DOB_Join_On_BIN.py <hpd_csv> <dob_filings_csv> [co_filings_csv]` — joins timelines
-- `create_timeline_chart.py <timeline_csv>` — PDF timeline chart for the provided timeline
-- `run_workflow.py` — orchestrates the complete 4-step pipeline with data quality tracking
+The notebook (`run_workflow.ipynb`) is a modular workflow where you can run individual steps independently. Each cell shows dataframe views and statistics for inspection.
 
-## Inputs and Outputs
-- **Raw Data**: `data/raw/Affordable_Housing_Production_by_Building.csv` (verified against NYC Open Data API)
-- **Processed Data** (`data/processed/`):
-  - `*with_financing.csv` (HPD + LL44 financing classification)
-  - `*_dob_filings.csv` and `*_dob_filings_summary.csv` (DOB New Building filings)
-  - `*_co_filings.csv` and `*_co_filings_summary.csv` (Certificate of Occupancy data)
-  - `*_timeline.csv` (HPD financed and privately financed timelines)
-- **Outputs**:
-  - `output/*_timeline_chart.pdf` and `output/*_timeline_data.csv` (timeline visualizations)
-  - `data_quality_reports/*` (data quality reports and Sankey diagrams showing data flow)
+### Step 1: Fetch HPD Data
+- Fetches HPD Affordable Housing Production data from NYC Open Data API
+- Verifies local data against API (record count + sample comparison)
+- Filters to **New Construction** projects only
+- Shows program group breakdowns and unit counts
+
+### Step 2: Analyze and Filter HPD Data
+- Visualizes units financed by year with stacked bar charts
+- Breaks down by Program Group (Multifamily Finance vs Multifamily Incentives)
+- Shows Planned Tax Benefit distribution (421a, etc.)
+- Filters to **Multifamily Finance Program** for DOB matching
+
+### Step 3A: Query DOB Filings
+Queries NYC Department of Buildings for new building permits using a multi-step fallback strategy:
+1. **BISWEB BIN** — Query by Building Identification Number
+2. **DOB NOW BIN** — Query DOB NOW system by BIN
+3. **BISWEB BBL** — Fallback by Borough-Block-Lot for unmatched BINs
+4. **DOB NOW BBL** — Fallback BBL query in DOB NOW
+5. **Condo Billing BBL** — Handles condo billing BBL variations
+6. **Address Search** — Final fallback using street address
+
+Shows matching statistics: how many projects matched via each method.
+
+### Step 3B: Query Certificate of Occupancy
+- Queries DOB NOW CO and DOB CO APIs
+- Extracts initial and final CO dates
+- Shows CO filing statistics
+
+### Step 4: Generate Timelines
+- Joins HPD data with DOB filings by BIN/BBL
+- Creates separate timelines for HPD-financed vs privately-financed projects
+- Identifies projects without DOB matches
+
+### Step 5: Summary
+- Final workflow summary with record counts
+- Lists unmatched projects for further investigation
 
 ## Data Sources
-- HPD Affordable Housing Production
-- LL44 Funding: [NYC Open Data](https://data.cityofnewyork.us/resource/gmi7-62cd.json)
-- DOB Job Application Filings: [ic3t-wcy2](https://data.cityofnewyork.us/Housing-Development/DOB-Job-Application-Filings/ic3t-wcy2)
-- DOB NOW Job Applications: [w9ak-ipjd](https://data.cityofnewyork.us/Housing-Development/DOB-NOW-Job-Application-Filings/w9ak-ipjd)
-- DOB NOW Certificate of Occupancy: [pkdm-hqz6](https://data.cityofnewyork.us/resource/pkdm-hqz6.json)
-- DOB Certificate Of Occupancy: [bs8b-p36w](https://data.cityofnewyork.us/resource/bs8b-p36w.json)
 
-## Notes
-- The workflow automatically verifies local HPD data against the NYC Open Data API using record count and sample comparison before proceeding.
-- BBL fallback in `query_dob_filings.py` requires a CSV with BIN and BBL columns (e.g., the HPD dataset).
-- API calls hit NYC Open Data and may take several minutes; using `--skip-dob`/`--skip-co` flags reuses existing processed data.
-- Data quality reports include Sankey diagrams showing how the dataset is filtered and enriched through each pipeline stage.
-- The pipeline is designed to be extensible - additional enrichment steps can be added before chart generation.
+| Dataset | API Endpoint |
+|---------|--------------|
+| HPD Affordable Housing Production (Buildings) | [hg8x-zxpr](https://data.cityofnewyork.us/resource/hg8x-zxpr.json) |
+| HPD Affordable Housing Production (Projects) | [hq68-rnsi](https://data.cityofnewyork.us/resource/hq68-rnsi.json) |
+| DOB Job Application Filings (BISWEB) | [ic3t-wcy2](https://data.cityofnewyork.us/resource/ic3t-wcy2.json) |
+| DOB NOW Job Applications | [w9ak-ipjd](https://data.cityofnewyork.us/resource/w9ak-ipjd.json) |
+| DOB NOW Certificate of Occupancy | [pkdm-hqz6](https://data.cityofnewyork.us/resource/pkdm-hqz6.json) |
+| DOB Certificate of Occupancy | [bs8b-p36w](https://data.cityofnewyork.us/resource/bs8b-p36w.json) |
+
+## Project Structure
+
+```
+├── run_workflow.ipynb           # Main analysis notebook
+├── fetch_affordable_housing_data.py  # HPD data fetching
+├── query_dob_filings.py         # DOB permit queries
+├── query_co_filings.py          # Certificate of Occupancy queries
+├── data/
+│   └── raw/                     # Raw HPD data files
+├── output/                      # Generated outputs
+├── docs/
+│   ├── project_planning.md      # Task tracking
+│   └── bugs-and-fixes.md        # Bug log
+└── testing_debugging/           # Debug scripts
+```
+
+## Notebook Configuration
+
+Each step has configuration options at the top of its cell:
+
+| Variable | Purpose |
+|----------|---------|
+| `refresh_data` | Force fetch fresh HPD data from API |
+| `skip_co` | Use existing CO data instead of querying |
+| `skip_join` | Skip timeline creation |
+| `skip_charts` | Skip chart generation |
+
+## Key Features
+
+- **In-memory workflow**: DataFrames pass between cells without file I/O
+- **BBL fallback matching**: When BIN lookup fails, automatically tries BBL variations
+- **Condo support**: Handles NYC condo billing BBL complexities
+- **Data quality tracking**: Shows match rates and unmatched records
