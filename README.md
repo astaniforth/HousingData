@@ -1,6 +1,6 @@
 # NYC Housing Data Analysis
 
-Interactive Jupyter notebook for analyzing NYC affordable housing production—correlating HPD financing data with DOB permit filings and Certificates of Occupancy.
+Interactive Jupyter workflow (`run_workflow.ipynb`) that links HPD Affordable Housing Production data to DOB permit filings and Certificates of Occupancy for Multifamily Finance Program new construction projects.
 
 ## Quick Start
 
@@ -9,46 +9,35 @@ pip install pandas matplotlib requests beautifulsoup4 plotly
 jupyter notebook run_workflow.ipynb
 ```
 
-## What the Notebook Does
+## Notebook Flow (matches `run_workflow.ipynb`)
 
-The notebook (`run_workflow.ipynb`) is a modular workflow where you can run individual steps independently. Each cell shows dataframe views and statistics for inspection.
+- **Setup**: Import helpers from `fetch_affordable_housing_data.py`, `query_dob_filings.py`, and `query_co_filings.py`.
+- **Step 1: Fetch HPD data**
+  - Options: `refresh_data`, `refresh_hpd_projects`, `hpd_output_path`
+  - Downloads/refreshes HPD Buildings data, filters to **New Construction**, prints counts and sample rows.
+- **HPD exploration**
+  - Program group counts (rows vs. unique Project IDs) and unit totals.
+  - Planned Tax Benefit breakdowns and a stacked bar of units by year for Multifamily Finance vs. Multifamily Incentives (colored by tax benefit).
+  - 421a + 2025 start date sample.
+- **Filter to Multifamily Finance Program (New Construction)**
+  - Produces in-memory `hpd_multifamily_finance_new_construction_df` for DOB matching.
+- **Step 3A: DOB filings (BIN/BBL)**
+  - Cleans BINs (drops placeholders) and builds BIN/BBL lists.
+  - Queries **BISWEB BIN**, **DOB NOW BIN**, then fallback **BISWEB BBL** and **DOB NOW BBL**.
+  - Normalizes BIN/BBL, finds earliest DOB milestone per BIN/BBL, and joins back to HPD.
+  - Exports `output/hpd_multifamily_finance_new_construction_with_dob_date.csv`.
+- **Step 3B: Certificate of Occupancy**
+  - Queries CO APIs by BIN, then BBL fallback for missing/placeholder BINs.
+  - Joins earliest CO date into the DOB-joined table.
+  - Exports `output/hpd_multifamily_finance_new_construction_with_all_dates.csv`.
 
-### Step 1: Fetch HPD Data
-- Fetches HPD Affordable Housing Production data from NYC Open Data API
-- Verifies local data against API (record count + sample comparison)
-- Filters to **New Construction** projects only
-- Shows program group breakdowns and unit counts
+## Configuration (in-notebook)
 
-### Step 2: Analyze and Filter HPD Data
-- Visualizes units financed by year with stacked bar charts
-- Breaks down by Program Group (Multifamily Finance vs Multifamily Incentives)
-- Shows Planned Tax Benefit distribution (421a, etc.)
-- Filters to **Multifamily Finance Program** for DOB matching
-
-### Step 3A: Query DOB Filings
-Queries NYC Department of Buildings for new building permits using a multi-step fallback strategy:
-1. **BISWEB BIN** — Query by Building Identification Number
-2. **DOB NOW BIN** — Query DOB NOW system by BIN
-3. **BISWEB BBL** — Fallback by Borough-Block-Lot for unmatched BINs
-4. **DOB NOW BBL** — Fallback BBL query in DOB NOW
-5. **Condo Billing BBL** — Handles condo billing BBL variations
-6. **Address Search** — Final fallback using street address
-
-Shows matching statistics: how many projects matched via each method.
-
-### Step 3B: Query Certificate of Occupancy
-- Queries DOB NOW CO and DOB CO APIs
-- Extracts initial and final CO dates
-- Shows CO filing statistics
-
-### Step 4: Generate Timelines
-- Joins HPD data with DOB filings by BIN/BBL
-- Creates separate timelines for HPD-financed vs privately-financed projects
-- Identifies projects without DOB matches
-
-### Step 5: Summary
-- Final workflow summary with record counts
-- Lists unmatched projects for further investigation
+| Variable | Purpose |
+|----------|---------|
+| `refresh_data` | Fetch fresh HPD buildings data |
+| `refresh_hpd_projects` | Refresh HPD projects cache before buildings fetch/verify |
+| `hpd_output_path` | Local path for HPD buildings CSV |
 
 ## Data Sources
 
@@ -61,36 +50,27 @@ Shows matching statistics: how many projects matched via each method.
 | DOB NOW Certificate of Occupancy | [pkdm-hqz6](https://data.cityofnewyork.us/resource/pkdm-hqz6.json) |
 | DOB Certificate of Occupancy | [bs8b-p36w](https://data.cityofnewyork.us/resource/bs8b-p36w.json) |
 
+## Outputs
+
+- `output/hpd_multifamily_finance_new_construction_with_dob_date.csv` — HPD MFP new construction joined to earliest DOB milestone.
+- `output/hpd_multifamily_finance_new_construction_with_all_dates.csv` — Adds earliest CO date to the above.
+
 ## Project Structure
 
 ```
 ├── run_workflow.ipynb           # Main analysis notebook
-├── fetch_affordable_housing_data.py  # HPD data fetching
-├── query_dob_filings.py         # DOB permit queries
+├── fetch_affordable_housing_data.py  # HPD data fetching/verification
+├── query_dob_filings.py         # DOB permit queries (BISWEB/DOB NOW)
 ├── query_co_filings.py          # Certificate of Occupancy queries
 ├── data/
-│   └── raw/                     # Raw HPD data files
+│   └── raw/                     # HPD source data cache
 ├── output/                      # Generated outputs
 ├── docs/
-│   ├── project_planning.md      # Task tracking
-│   └── bugs-and-fixes.md        # Bug log
-└── testing_debugging/           # Debug scripts
+│   ├── project_planning.md
+│   └── bugs-and-fixes.md
+└── testing_debugging/
 ```
 
-## Notebook Configuration
-
-Each step has configuration options at the top of its cell:
-
-| Variable | Purpose |
-|----------|---------|
-| `refresh_data` | Force fetch fresh HPD data from API |
-| `skip_co` | Use existing CO data instead of querying |
-| `skip_join` | Skip timeline creation |
-| `skip_charts` | Skip chart generation |
-
-## Key Features
-
-- **In-memory workflow**: DataFrames pass between cells without file I/O
-- **BBL fallback matching**: When BIN lookup fails, automatically tries BBL variations
-- **Condo support**: Handles NYC condo billing BBL complexities
-- **Data quality tracking**: Shows match rates and unmatched records
+Notes:
+- Current flow uses BIN/BBL fallbacks only; condo/address fallbacks are not executed in the notebook.
+- Workflow writes CSVs for downstream use rather than remaining purely in-memory.
