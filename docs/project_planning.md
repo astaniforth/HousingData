@@ -51,6 +51,9 @@ This project analyzes affordable housing production in NYC, correlating HPD fina
 - [x] Remove data_quality.py dependencies from active workflow files
 - [x] Consolidate all imports to top of notebook instead of scattered throughout cells
 
+### Documentation
+- [x] Revise README to focus on notebook workflow (commit 5e1d7ac)
+
 ### Future Enhancements
 - [ ] Add permit issuance dates
 - [ ] Include building inspection data
