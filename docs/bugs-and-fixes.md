@@ -209,7 +209,7 @@ This now correctly finds both:
 
 **Status: Fixed**
 **Date: Dec 2, 2025**
-**Commit SHA: [to be added]**
+**Commit SHA: 36794c5**
 
 **Bug Description:**
 Buildings that share a BIN with another building are not getting DOB data. The DOB query step only queries BINs that appear exactly once in the dataset, excluding any BIN that's used by multiple buildings.
