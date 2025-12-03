@@ -54,6 +54,10 @@ This project analyzes affordable housing production in NYC, correlating HPD fina
 ### Documentation
 - [x] Revise README to focus on notebook workflow (commit 5e1d7ac)
 
+### DOB Query Enhancements
+- [x] Implement address-based fallback (Tier 3) for buildings without DOB data after BIN/BBL queries
+- [x] Add Step 3C to notebook for address-based fallback to handle lot splits, BIN/BBL mismatches
+
 ### Future Enhancements
 - [ ] Add permit issuance dates
 - [ ] Include building inspection data

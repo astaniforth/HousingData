@@ -272,3 +272,73 @@ bins = sorted(list(bins_set))
 - Both buildings share the same BIN/BBL, so both will get the same DOB dates
 - Verify other shared BINs also get DOB data
 
+
+---
+
+## Address-Based Fallback Implementation (Tier 3)
+
+**Status: Implemented**
+**Date: Dec 3, 2025**
+
+**Enhancement Description:**
+Added address-based querying as a third-tier fallback for buildings that don't have DOB data after BIN and BBL queries. This handles cases where lot splits, BIN/BBL mismatches, or other identifier discrepancies prevent matching.
+
+**Motivation:**
+Analysis showed 67 buildings without DOB dates after BIN/BBL queries. Investigation revealed several causes:
+1. **Lot splits/mergers**: Property BBL changed during development (e.g., lot 1 split into lot 200)
+2. **BIN mismatches**: HPD and DOB databases have different BINs for the same building
+3. **Address discrepancies**: HPD and DOB have slightly different addresses (e.g., "635" vs "655")
+4. **Legitimate missing data**: Some HPD "New Construction" projects are filed as Alterations in DOB
+
+**Example Case: Building 50497 (655 Morris Avenue)**
+- HPD has: BIN 2002441, BBL 2024410001, address "635 MORRIS AVENUE"
+- DOB has: BIN 2127027, BBL (different), address "655 MORRIS AVENUE"
+- BIN query fails: BIN mismatch
+- BBL query fails: Block 2441 has no NB filings
+- Address query succeeds (if corrected): Job 220211205 at "655 MORRIS AVENUE" found
+
+**Implementation:**
+Added new Step 3C to `run_workflow.ipynb` after Step 3B (BBL fallback):
+
+1. Identifies buildings without DOB matches after BIN and BBL queries
+2. Extracts addresses (Borough, Number, Street) from HPD data
+3. Queries DOB APIs using existing `query_dob_by_address()` function
+4. Normalizes BIN/BBL columns and appends results to combined DOB data
+5. Tracks how many additional projects now have DOB data
+
+**Files Modified:**
+- `run_workflow.ipynb`: Added 2 cells (markdown header + code) after cell 13
+- Created backup: `run_workflow.ipynb.backup_20251202_191328`
+
+**Code Structure:**
+```python
+# Step 3C: Address-Based Fallback
+# 1. Get buildings without DOB data (from projects_with_no_dob)
+# 2. Merge with original HPD data to get addresses
+# 3. Extract unique addresses (Borough, Number, Street)
+# 4. Call query_dob_by_address()
+# 5. Normalize and append results to combined_dob_with_normalized_bbl_df
+```
+
+**Limitations:**
+- Only matches when addresses are **exactly identical** between HPD and DOB
+- Does not implement fuzzy matching or "nearby house number" logic
+- Will not find DOB data for buildings with significant address discrepancies
+- HPD "New Construction" projects filed as "Alteration" in DOB still won't match (by design)
+
+**Benefits:**
+- Handles lot splits/mergers automatically (address-based matching ignores lot numbers)
+- Catches BIN/BBL mismatches where address data is correct
+- No false positives (exact matching only)
+- Uses existing, tested `query_dob_by_address()` function
+
+**Testing:**
+- Tested with building 50497: Address "655 MORRIS AVENUE" finds job 220211205 ✅
+- Tested with sample of 5 buildings without DOB data: 0 matched (due to address discrepancies)
+- Address fallback will help some cases but not all
+
+**Future Enhancements:**
+- Could add fuzzy address matching (e.g., try ±10 house numbers)
+- Could parse DOB job descriptions for lot split notes (e.g., "NEW LOT 200")
+- Could query entire block when individual lot fails (aggressive fallback)
+
