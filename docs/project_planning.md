@@ -64,6 +64,11 @@ This project analyzes affordable housing production in NYC, correlating HPD fina
 - [x] Join with ZAP Project data to get full project details
 - [x] Handle multiple matches by prioritizing ULURP projects
 
+### Current Task: Add DOB Application Match Counts
+- [x] Add count columns for NB (BISWEB) 01 applications matched via BIN, BBL, or Address
+- [x] Add count columns for New Building (DOBNOW) I1 applications matched via BIN, BBL, or Address
+- [x] Include these counts in exported CSV data
+
 ### Future Enhancements
 - [ ] Add permit issuance dates
 - [ ] Include building inspection data
