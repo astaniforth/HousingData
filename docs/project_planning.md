@@ -70,12 +70,14 @@ This project analyzes affordable housing production in NYC, correlating HPD fina
 - [x] Include these counts in exported CSV data
 
 ### Data Quality Scoring
-- [x] Implement data quality scoring system with three criteria:
+- [x] Implement data quality scoring system with five criteria:
   - CO date vs Building Completion Date alignment (0-10 points)
   - Number of NB/New Building filings (0-10 points)
   - BIN match with DOB NB application (0-10 points)
-- [x] Create data quality report CSV with scores for each building
-- [x] Add score visualization and statistics
+  - CO date vs Project Start Date timeline (0-10 points)
+  - Fully Permitted date vs Project Start Date timing (0-10 points)
+- [x] Create data quality report CSV with scores for each building (0-50 total points)
+- [x] Add score visualization and statistics with Poor/Fair/Good/Excellent categories
 
 ### Future Enhancements
 - [ ] Add permit issuance dates
