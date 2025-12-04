@@ -57,6 +57,7 @@ This project analyzes affordable housing production in NYC, correlating HPD fina
 ### DOB Query Enhancements
 - [x] Implement address-based fallback (Tier 3) for buildings without DOB data after BIN/BBL queries
 - [x] Add Step 3C to notebook for address-based fallback to handle lot splits, BIN/BBL mismatches
+- [x] Implement condo BBL fallback (Tier 2.5) to handle condo properties where HPD has billing BBL but DOB uses base BBL
 
 ### ZAP Data Integration
 - [x] Create notebook to integrate ZAP (Zoning Application Portal) BBL and Project data with HPD dataset

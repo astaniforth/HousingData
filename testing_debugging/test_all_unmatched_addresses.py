@@ -151,3 +151,4 @@ else:
     for i, (borough, house, street) in enumerate(addresses[:10]):
         print(f"{i+1}. {house} {street}, {borough}")
 
+

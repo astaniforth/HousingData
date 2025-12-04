@@ -85,3 +85,4 @@ borough_counts = no_dob['Borough'].value_counts()
 for borough, count in borough_counts.items():
     print(f"   {borough}: {count}")
 
+

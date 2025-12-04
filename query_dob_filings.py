@@ -393,6 +393,160 @@ def get_condo_billing_bbl(base_bbl):
         return None
 
 
+def get_all_condo_related_bbls(bbl):
+    """
+    Find all BBLs related to a condo by searching both directions:
+    1. If input BBL is a billing BBL → find base BBL
+    2. If input BBL is a base BBL → find all billing BBLs
+    3. Then get all BBLs in the condo complex
+    
+    This handles the case where HPD has the billing BBL (e.g., lot 7504)
+    but DOB permits are filed on the base BBL (e.g., lot 70).
+    
+    Args:
+        bbl: BBL value (string or int) to look up
+    
+    Returns:
+        set: All related BBLs (base + billing), empty set if not a condo
+    """
+    try:
+        bbl_str = str(int(float(bbl))).zfill(10)
+        related_bbls = set()
+        base_bbl = None
+        
+        # Step 1: Check if this is a billing BBL (search condo_billing_bbl)
+        params = {
+            '$where': f"condo_billing_bbl='{bbl_str}'",
+            '$limit': 1
+        }
+        response = requests.get(CONDO_BILLING_URL, params=params, timeout=30)
+        response.raise_for_status()
+        data = response.json()
+        
+        if data:
+            # Found as billing BBL - get the base BBL
+            base_bbl = data[0].get('condo_base_bbl')
+            related_bbls.add(bbl_str)
+        else:
+            # Step 1b: Check if this is a base BBL (search condo_base_bbl)
+            params = {
+                '$where': f"condo_base_bbl='{bbl_str}'",
+                '$limit': 1
+            }
+            response = requests.get(CONDO_BILLING_URL, params=params, timeout=30)
+            response.raise_for_status()
+            data = response.json()
+            
+            if data:
+                # This IS a base BBL
+                base_bbl = bbl_str
+            else:
+                # Not a condo property
+                return set()
+        
+        if not base_bbl:
+            return set()
+        
+        # Step 2: Get ALL billing BBLs for this base BBL
+        params = {
+            '$where': f"condo_base_bbl='{base_bbl}'",
+            '$limit': 1000  # Get all related billing BBLs
+        }
+        response = requests.get(CONDO_BILLING_URL, params=params, timeout=30)
+        response.raise_for_status()
+        all_records = response.json()
+        
+        # Add base BBL and all billing BBLs
+        related_bbls.add(base_bbl)
+        for record in all_records:
+            billing_bbl = record.get('condo_billing_bbl')
+            if billing_bbl:
+                related_bbls.add(str(billing_bbl).zfill(10))
+        
+        return related_bbls
+        
+    except Exception as e:
+        print(f"    Error querying condo API for BBL {bbl}: {str(e)[:50]}")
+        return set()
+
+
+def query_dob_for_condo_bbls(bbl_list, limit=50000):
+    """
+    Query DOB BISWEB and DOB NOW for NB filings on condo-related BBLs.
+    
+    For each input BBL:
+    1. Find all condo-related BBLs (base + billing)
+    2. Query DOB APIs for NB filings on all related BBLs
+    
+    Args:
+        bbl_list: List of BBLs to check for condo relationships
+        limit: Maximum records per query
+    
+    Returns:
+        DataFrame with all NB filings found via condo lookup
+    """
+    print("\n" + "=" * 70)
+    print("CONDO FALLBACK")
+    print("=" * 70)
+    print(f"Checking {len(bbl_list)} BBLs for condo relationships...")
+    
+    all_results = []
+    condo_count = 0
+    bbls_to_query = set()
+    
+    # Step 1: Collect all condo-related BBLs
+    for bbl in bbl_list:
+        related_bbls = get_all_condo_related_bbls(bbl)
+        if related_bbls:
+            condo_count += 1
+            bbls_to_query.update(related_bbls)
+    
+    if not bbls_to_query:
+        print(f"  No condo properties found among {len(bbl_list)} BBLs")
+        return pd.DataFrame()
+    
+    print(f"  Found {condo_count} condo properties with {len(bbls_to_query)} total BBLs to query")
+    
+    # Step 2: Convert BBLs to query tuples (borough, block, lot)
+    bbl_tuples = []
+    for bbl_str in bbls_to_query:
+        bbl_padded = str(bbl_str).zfill(10)
+        borough_code = bbl_padded[0]
+        # BISWEB requires PADDED block (5 digits) and lot (5 digits)
+        block = bbl_padded[1:6]
+        lot = bbl_padded[6:].zfill(5)
+        
+        borough_map = {'1': 'MANHATTAN', '2': 'BRONX', '3': 'BROOKLYN', '4': 'QUEENS', '5': 'STATEN ISLAND'}
+        borough = borough_map.get(borough_code)
+        
+        if borough:
+            bbl_tuples.append((borough, block, lot))
+    
+    # Step 3: Query BISWEB
+    print(f"  Querying BISWEB for {len(bbl_tuples)} condo BBLs...")
+    bisweb_results = query_dob_bisweb_bbl(bbl_tuples, limit)
+    if not bisweb_results.empty:
+        bisweb_results['source'] = 'CONDO_FALLBACK_BISWEB'
+        all_results.append(bisweb_results)
+        print(f"    Found {len(bisweb_results)} BISWEB records")
+    
+    # Step 4: Query DOB NOW
+    print(f"  Querying DOB NOW for {len(bbl_tuples)} condo BBLs...")
+    dobnow_results = query_dobnow_bbl(bbl_tuples, limit)
+    if not dobnow_results.empty:
+        dobnow_results['source'] = 'CONDO_FALLBACK_DOBNOW'
+        all_results.append(dobnow_results)
+        print(f"    Found {len(dobnow_results)} DOB NOW records")
+    
+    if all_results:
+        combined = pd.concat(all_results, ignore_index=True)
+        print(f"\n  ✅ Condo fallback found {len(combined)} total records")
+        return combined
+    else:
+        print(f"\n  ❌ No DOB records found via condo fallback")
+        return pd.DataFrame()
+
+
 def query_condo_lots_for_bbl(borough, block, base_lot, base_bbl=None, limit=50000):
     """
     Query DOB BISWEB API for condo billing BBL when base lot doesn't match.

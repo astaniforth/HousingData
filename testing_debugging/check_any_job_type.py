@@ -78,3 +78,4 @@ for new construction. If these are truly new construction projects but don't
 have NB filings, there may be a data quality issue in either HPD or DOB.
 """)
 
+

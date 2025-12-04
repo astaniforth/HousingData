@@ -118,3 +118,4 @@ for building in buildings[:3]:  # Check first 3
     
     print()
 
+

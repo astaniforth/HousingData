@@ -382,3 +382,63 @@ Added the DOB date extraction code to Cell 18:
 - Notebook should now run through Cell 19 without NameError
 - `hpd_multifamily_finance_new_construction_with_dob_date_df` should have 581 rows with DOB dates populated where available
 
+---
+
+## Condo BBL Fallback Not Implemented
+
+**Status: Fixed**
+**Date: Dec 4, 2025**
+
+**Bug Description:**
+Building 995045 at 45 Commercial Street (Greenpoint Landing H1H2) with BBL `3024727504` showed no NB filings, even though DOB has 8 NB filings for this property. The issue was that HPD has the **billing BBL** (lot 7504) but DOB permits are filed on the **base BBL** (lot 70 → BBL `3024720070`).
+
+**Symptoms:**
+- Building 995045 shows 0 NB filings in data quality report
+- Address fallback also failed because it was searching the wrong BBL
+- The `query_condo_lots_for_bbl` function existed but was never called in the workflow
+- The function only searched base→billing direction, not billing→base
+
+**Root Cause:**
+1. **Condo fallback step was never implemented** - The workflow mentioned "BBL → Condo → Address" but the condo step was completely missing
+2. **Existing function was incomplete** - `query_condo_lots_for_bbl` only looked up billing BBL from base BBL, but many HPD records have the billing BBL and need to find the base BBL
+3. **No bidirectional lookup** - For condos, we need to:
+   - Search input BBL in `condo_billing_bbl` → find base BBL
+   - Search input BBL in `condo_base_bbl` → it IS the base BBL
+   - Then search base BBL to get ALL related billing BBLs
+   - Query DOB with all related BBLs
+
+**Example:**
+- HPD BBL: `3024727504` (billing BBL, lot 7504)
+- Digital Tax Map shows: base BBL = `3024720070` (lot 70)
+- DOB BISWEB has 8 NB filings on BBL `3024720070`
+- Without condo fallback, we query lot 7504 which has no NB filings
+
+**Fix:**
+Added two new functions to `query_dob_filings.py`:
+1. `get_all_condo_related_bbls(bbl)` - Bidirectional lookup that finds all related BBLs:
+   - Searches `condo_billing_bbl` for input → gets base BBL
+   - Searches `condo_base_bbl` for input → confirms it's a base BBL
+   - Then gets ALL billing BBLs for that base BBL
+   - Returns set of all related BBLs
+
+2. `query_dob_for_condo_bbls(bbl_list)` - Queries DOB for NB filings on all condo-related BBLs:
+   - For each input BBL, finds all related condo BBLs
+   - Queries BISWEB and DOB NOW with padded block/lot values
+   - Returns combined DataFrame with source='CONDO_FALLBACK_*'
+
+Added "Tier 2.5: Condo Fallback" step in `run_workflow.ipynb`:
+- Runs after BBL fallback (Tier 2) and before Address fallback (Tier 3)
+- Checks unmatched projects for condo relationships
+- Queries DOB for all related BBLs
+- Includes results in combined DOB data
+
+**API Details:**
+- Uses NYC Digital Tax Map: Condominiums dataset (`p8u6-a6it.json`)
+- Columns: `condo_base_bbl`, `condo_billing_bbl`, `condo_name`, etc.
+- BISWEB requires **padded** block (5 digits) and lot (5 digits) values
+
+**Testing:**
+- Building 995045 (BBL `3024727504`) now finds 8 NB filings via condo fallback
+- Job 321589704 with pre-filing date 06/01/2020 is correctly identified
+- Test script: `testing_debugging/test_condo_fallback.py`
+
