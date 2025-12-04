@@ -1,3 +1,4 @@
 run_datetime,total_buildings,avg_score,median_score,std_score,poor_count,fair_count,good_count,excellent_count,pct_poor,pct_fair,pct_good,pct_excellent,pct_good_or_better,avg_score_1_co_completion,avg_score_2_nb_filing_count,avg_score_3_bin_match,avg_score_4_co_timeline,avg_score_5_permitted_timing,buildings_with_dob_date,buildings_with_co_date
 2025-12-04 09:54:15,581,33.29,35.0,14.7,87,179,129,186,15.0,30.8,22.2,32.0,54.2,6.25,7.07,8.45,5.23,6.28,549,322
 2025-12-04 10:17:05,581,33.29,35.0,14.7,87,179,129,186,15.0,30.8,22.2,32.0,54.2,6.25,7.07,8.45,5.23,6.28,549,322
+2025-12-04 10:24:39,581,33.29,35.0,14.7,87,179,129,186,15.0,30.8,22.2,32.0,54.2,6.25,7.07,8.45,5.23,6.28,549,322
