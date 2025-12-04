@@ -618,3 +618,54 @@ if 'first_permit_date' in dob_filtered_df.columns:
 - `fully_permitted_date` should now have ~887 non-null values (806 + ~81 from DOB NOW)
 - Buildings with DOB NOW data should now show permit dates
 
+---
+
+## DOB NOW I1 Counting Always Returns 0 Matches
+
+**Status: Fixed**
+**Date: Dec 4, 2025**
+
+**Bug Description:**
+Buildings with DOB NOW I1 filings showed correct dates but `count_new_building_dobnow_i1_matched = 0`. The counting logic found 90 DOB NOW I1 applications but matched 0 buildings.
+
+**Symptoms:**
+- Data quality report showed DOB NOW dates (e.g., 2021-04-07) for buildings
+- But `count_new_building_dobnow_i1_matched` = 0 for all buildings
+- Debug output showed: "DOBNOW I1 applications: 90" but "Buildings with DOBNOW I1 matches: 0"
+- Debug confirmed BIN '3428961' existed in DOB NOW I1 with 2 records
+
+**Root Cause:**
+When BISWEB and DOB NOW data are concatenated, the combined dataframe has BOTH:
+- `job__` column (from BISWEB, NaN for DOB NOW records)
+- `job_filing_number` column (from DOB NOW, NaN for BISWEB records)
+
+The counting code used an `if/elif/elif` chain:
+```python
+if 'job__' in bin_matches.columns:  # True! (column exists from BISWEB)
+    matched_app_nums_i1.update(bin_matches['job__'].dropna().astype(str))  # Empty! (NaN for DOB NOW)
+elif 'job_filing_number' in bin_matches.columns:  # Never reached!
+    ...
+```
+
+Since `job__` exists in the combined df (from BISWEB data), the check `'job__' in bin_matches.columns` was True. But for DOB NOW records, `job__` is always NaN, so `.dropna()` returned empty, and `job_filing_number` was never checked.
+
+**Fix:**
+Changed from `if/elif/elif` to `if/if/if` and added check for non-null values:
+```python
+if 'job__' in bin_matches.columns and bin_matches['job__'].notna().any():
+    matched_app_nums_i1.update(bin_matches['job__'].dropna().astype(str))
+if 'application_number' in bin_matches.columns and bin_matches['application_number'].notna().any():
+    matched_app_nums_i1.update(bin_matches['application_number'].dropna().astype(str))
+if 'job_filing_number' in bin_matches.columns and bin_matches['job_filing_number'].notna().any():
+    matched_app_nums_i1.update(bin_matches['job_filing_number'].dropna().astype(str))
+```
+
+Applied fix to all 6 matching sections (BIN/BBL/Address for both BISWEB and DOB NOW).
+
+**Files Modified:**
+- `run_workflow.ipynb`: Cell 19 (counting cell)
+
+**Testing:**
+- Building 998619 (BIN 3428961) should now show `count_new_building_dobnow_i1_matched = 2`
+- Overall "Buildings with DOBNOW I1 matches" should be > 0
+
