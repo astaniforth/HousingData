@@ -69,6 +69,14 @@ This project analyzes affordable housing production in NYC, correlating HPD fina
 - [x] Add count columns for New Building (DOBNOW) I1 applications matched via BIN, BBL, or Address
 - [x] Include these counts in exported CSV data
 
+### Data Quality Scoring
+- [x] Implement data quality scoring system with three criteria:
+  - CO date vs Building Completion Date alignment (0-10 points)
+  - Number of NB/New Building filings (0-10 points)
+  - BIN match with DOB NB application (0-10 points)
+- [x] Create data quality report CSV with scores for each building
+- [x] Add score visualization and statistics
+
 ### Future Enhancements
 - [ ] Add permit issuance dates
 - [ ] Include building inspection data
