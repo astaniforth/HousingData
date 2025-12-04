@@ -569,3 +569,52 @@ hpd_df['BIN_str'] = hpd_df['BIN'].apply(normalize_bin_str)
 - Buildings with valid BIN/BBL should still get correct dates
 - The suspicious dates 2003-09-11 and 2014-08-12 should no longer appear for unmatched buildings
 
+---
+
+## Fully Permitted Date Missing DOB NOW Values
+
+**Status: Fixed**
+**Date: Dec 4, 2025**
+
+**Bug Description:**
+The `fully_permitted_date` column was only being populated from BISWEB's `fully_permitted` column, missing the equivalent data from DOB NOW which uses `first_permit_date` for the same milestone.
+
+**Symptoms:**
+- `fully_permitted_date` only had 806 non-null values (from BISWEB)
+- 81 DOB NOW records with `first_permit_date` were being ignored
+- Buildings with only DOB NOW data had no `fully_permitted_date` even when the data existed
+
+**Root Cause:**
+The code in Cell 18 only extracted from one column:
+```python
+if 'fully_permitted' in dob_filtered_df.columns:
+    dob_filtered_df['fully_permitted_date'] = dob_filtered_df['fully_permitted']
+```
+
+DOB NOW uses `first_permit_date` instead of `fully_permitted` for the same milestone, but this was not being captured.
+
+**Fix:**
+Updated the code to combine both columns:
+1. Start with BISWEB's `fully_permitted` column
+2. Fill missing values with DOB NOW's `first_permit_date` 
+3. For rows with both values (edge case), use the earlier date
+
+```python
+# Use fully_permitted from BISWEB
+if 'fully_permitted' in dob_filtered_df.columns:
+    dob_filtered_df['fully_permitted_date'] = pd.to_datetime(dob_filtered_df['fully_permitted'], errors='coerce')
+
+# Fill in with first_permit_date from DOB NOW where fully_permitted is missing
+if 'first_permit_date' in dob_filtered_df.columns:
+    first_permit = pd.to_datetime(dob_filtered_df['first_permit_date'], errors='coerce')
+    mask = dob_filtered_df['fully_permitted_date'].isna()
+    dob_filtered_df.loc[mask, 'fully_permitted_date'] = first_permit[mask]
+```
+
+**Files Modified:**
+- `run_workflow.ipynb`: Cell 18
+
+**Testing:**
+- `fully_permitted_date` should now have ~887 non-null values (806 + ~81 from DOB NOW)
+- Buildings with DOB NOW data should now show permit dates
+
