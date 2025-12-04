@@ -442,3 +442,49 @@ Added "Tier 2.5: Condo Fallback" step in `run_workflow.ipynb`:
 - Job 321589704 with pre-filing date 06/01/2020 is correctly identified
 - Test script: `testing_debugging/test_condo_fallback.py`
 
+---
+
+## DOB NOW Data Missing bbl_normalized Column
+
+**Status: Fixed**
+**Date: Dec 4, 2025**
+**Commit SHA: 8ebfe17**
+
+**Bug Description:**
+DOB NOW data (from `query_dobnow_bin` and `query_dobnow_bbl`) had the `bbl` column normalized to 10 digits, but this was stored in `bbl`, not `bbl_normalized`. The counting logic and matching logic check for `bbl_normalized`, so BBL matching was failing for ALL DOB NOW records.
+
+**Symptoms:**
+- `DOBNOW I1 applications: 89` (records exist)
+- `Buildings with DOBNOW I1 matches: 0` (but none matched!)
+- Building 1004735 (GLENMORE MANOR) with BBL `3036920001` had DOB NOW New Building permits but showed 0 matches
+- The building has a placeholder BIN (`3000000`) so BIN matching fails, and BBL matching was broken
+
+**Root Cause:**
+In cell 17, when DOB NOW data is processed:
+```python
+# This normalized bbl but saved to 'bbl', not 'bbl_normalized':
+dob_now_bbl_df['bbl'] = dob_now_bbl_df['bbl'].apply(...)
+# Missing: dob_now_bbl_df['bbl_normalized'] = dob_now_bbl_df['bbl']
+```
+
+The counting logic then checks:
+```python
+if hpd_bbl and 'bbl_normalized' in dobnow_i1_df.columns:
+    bbl_matches = dobnow_i1_df[dobnow_i1_df['bbl_normalized'] == hpd_bbl]
+```
+
+Since `bbl_normalized` didn't exist in DOB NOW data, no BBL matches were ever found.
+
+**Fix:**
+Added `bbl_normalized = bbl` for both `dob_now_bin_df` and `dob_now_bbl_df`:
+```python
+if 'bbl' in dob_now_bbl_df.columns:
+    dob_now_bbl_df['bbl'] = dob_now_bbl_df['bbl'].apply(...)
+    dob_now_bbl_df['bbl_normalized'] = dob_now_bbl_df['bbl']  # CRITICAL: Set for matching
+```
+
+**Testing:**
+- Building 1004735 (GLENMORE MANOR, BBL 3036920001) should now show DOB NOW matches
+- Overall `Buildings with DOBNOW I1 matches` should be > 0
+- Test script: `testing_debugging/investigate_glenmore_manor.py`
+
