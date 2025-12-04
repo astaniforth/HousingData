@@ -800,9 +800,10 @@ def query_condo_lots_for_bbl(borough, block, base_lot, base_bbl=None, limit=5000
         return pd.DataFrame()
 
 
-def query_dob_by_address(address_list, limit=50000):
+def query_dob_by_address(address_list, limit=50000, batch_size=30):
     """
     Query DOB BISWEB and DOB NOW APIs by address as a last fallback.
+    Uses batched OR queries for efficiency.
     
     This searches for New Building permits by house number and street name
     when BIN and BBL queries have failed.
@@ -810,7 +811,8 @@ def query_dob_by_address(address_list, limit=50000):
     Args:
         address_list: List of address tuples (borough, house_number, street_name)
                      e.g., [('BRONX', '655', 'MORRIS AVENUE'), ...]
-        limit: Maximum number of records to retrieve per address
+        limit: Maximum number of records to retrieve per batch
+        batch_size: Number of addresses per API query
     
     Returns:
         DataFrame with matching records from both APIs
@@ -821,51 +823,110 @@ def query_dob_by_address(address_list, limit=50000):
     print("\nQuerying DOB APIs by address (last fallback)")
     print(f"Number of addresses to check: {len(address_list)}")
     
-    all_results = []
+    # Clean and organize addresses by borough for batching
+    addresses_by_borough = {}
+    address_lookup = {}  # For filtering results later
     
     for borough, house_number, street_name in address_list:
         if not borough or not house_number or not street_name:
             continue
         
-        # Clean up address components
         house_clean = str(house_number).strip()
         street_clean = str(street_name).strip().upper()
+        borough_clean = str(borough).strip().upper()
         
-        print(f"  Searching: {house_clean} {street_clean}, {borough}")
+        if borough_clean not in addresses_by_borough:
+            addresses_by_borough[borough_clean] = []
         
-        # Query BISWEB
-        try:
-            # BISWEB uses house__ and street_name columns
-            query_bisweb = f"job_type='NB' AND borough='{borough}' AND house__='{house_clean}' AND street_name LIKE '%{street_clean}%'"
-            params_bisweb = {
-                '$where': query_bisweb,
-                '$limit': limit
-            }
-            response_bisweb = requests.get(DOB_BISWEB_URL, params=params_bisweb, timeout=30)
-            response_bisweb.raise_for_status()
-            data_bisweb = response_bisweb.json()
-            if data_bisweb:
-                all_results.extend(data_bisweb)
-                print(f"    BISWEB: Found {len(data_bisweb)} records")
-        except Exception as e:
-            print(f"    BISWEB: Error - {str(e)[:50]}")
+        addresses_by_borough[borough_clean].append((house_clean, street_clean))
+        # Store for result filtering
+        key = f"{borough_clean}|{house_clean}"
+        if key not in address_lookup:
+            address_lookup[key] = set()
+        address_lookup[key].add(street_clean)
+    
+    all_results = []
+    total_batches = sum((len(addrs) + batch_size - 1) // batch_size for addrs in addresses_by_borough.values())
+    batch_num = 0
+    
+    for borough, addresses in addresses_by_borough.items():
+        print(f"  {borough}: {len(addresses)} addresses")
         
-        # Query DOB NOW
-        try:
-            # DOB NOW uses house_no and street_name columns
-            query_dobnow = f"job_type='New Building' AND borough='{borough}' AND house_no='{house_clean}' AND street_name LIKE '%{street_clean}%'"
-            params_dobnow = {
-                '$where': query_dobnow,
-                '$limit': limit
-            }
-            response_dobnow = requests.get(DOB_NOW_URL, params=params_dobnow, timeout=30)
-            response_dobnow.raise_for_status()
-            data_dobnow = response_dobnow.json()
-            if data_dobnow:
-                all_results.extend(data_dobnow)
-                print(f"    DOB NOW: Found {len(data_dobnow)} records")
-        except Exception as e:
-            print(f"    DOB NOW: Error - {str(e)[:50]}")
+        # Batch addresses for this borough
+        for i in range(0, len(addresses), batch_size):
+            batch = addresses[i:i+batch_size]
+            batch_num += 1
+            
+            # Build OR conditions for house numbers in this batch
+            house_numbers = list(set(h for h, s in batch))
+            
+            # Query BISWEB with batched house numbers
+            try:
+                # Build OR query: (house__='123' OR house__='456' OR ...)
+                house_conditions = " OR ".join([f"house__='{h}'" for h in house_numbers])
+                query_bisweb = f"job_type='NB' AND borough='{borough}' AND ({house_conditions})"
+                params_bisweb = {
+                    '$where': query_bisweb,
+                    '$limit': limit
+                }
+                response_bisweb = requests.get(DOB_BISWEB_URL, params=params_bisweb, timeout=60)
+                response_bisweb.raise_for_status()
+                data_bisweb = response_bisweb.json()
+                
+                if data_bisweb:
+                    # Filter results to match our specific addresses (house + street)
+                    filtered = []
+                    for record in data_bisweb:
+                        rec_house = str(record.get('house__', '')).strip()
+                        rec_street = str(record.get('street_name', '')).strip().upper()
+                        key = f"{borough}|{rec_house}"
+                        if key in address_lookup:
+                            # Check if street matches any of our target streets
+                            for target_street in address_lookup[key]:
+                                if target_street in rec_street or rec_street in target_street:
+                                    filtered.append(record)
+                                    break
+                    
+                    if filtered:
+                        all_results.extend(filtered)
+                
+                print(f"    Batch {batch_num}/{total_batches}: BISWEB {len(data_bisweb)} raw, {len(filtered) if data_bisweb else 0} matched", end='')
+            except Exception as e:
+                print(f"    Batch {batch_num}/{total_batches}: BISWEB Error - {str(e)[:30]}", end='')
+            
+            # Query DOB NOW with batched house numbers
+            try:
+                house_conditions = " OR ".join([f"house_no='{h}'" for h in house_numbers])
+                query_dobnow = f"job_type='New Building' AND borough='{borough}' AND ({house_conditions})"
+                params_dobnow = {
+                    '$where': query_dobnow,
+                    '$limit': limit
+                }
+                response_dobnow = requests.get(DOB_NOW_URL, params=params_dobnow, timeout=60)
+                response_dobnow.raise_for_status()
+                data_dobnow = response_dobnow.json()
+                
+                if data_dobnow:
+                    # Filter results to match our specific addresses
+                    filtered = []
+                    for record in data_dobnow:
+                        rec_house = str(record.get('house_no', '')).strip()
+                        rec_street = str(record.get('street_name', '')).strip().upper()
+                        key = f"{borough}|{rec_house}"
+                        if key in address_lookup:
+                            for target_street in address_lookup[key]:
+                                if target_street in rec_street or rec_street in target_street:
+                                    filtered.append(record)
+                                    break
+                    
+                    if filtered:
+                        all_results.extend(filtered)
+                
+                print(f" | DOB NOW {len(data_dobnow) if data_dobnow else 0} raw, {len(filtered) if data_dobnow else 0} matched")
+            except Exception as e:
+                print(f" | DOB NOW Error - {str(e)[:30]}")
+            
+            time.sleep(0.1)  # Rate limiting
     
     if all_results:
         df = pd.DataFrame(all_results)
