@@ -342,3 +342,43 @@ Added new Step 3C to `run_workflow.ipynb` after Step 3B (BBL fallback):
 - Could parse DOB job descriptions for lot split notes (e.g., "NEW LOT 200")
 - Could query entire block when individual lot fails (aggressive fallback)
 
+---
+
+## Missing DOB Date Extraction Cell
+
+**Status: Fixed**
+**Date: Dec 4, 2025**
+
+**Bug Description:**
+Cell 19 (COUNTING MATCHED DOB APPLICATIONS) threw `NameError: name 'hpd_multifamily_finance_new_construction_with_dob_date_df' is not defined` because the cell that creates this variable was missing (Cell 18 was an empty markdown cell).
+
+**Symptoms:**
+- Running the notebook in order caused NameError in Cell 19
+- The dataframe `hpd_multifamily_finance_new_construction_with_dob_date_df` was never created
+
+**Root Cause:**
+Cell 18 was an empty markdown cell that should have contained the code to:
+1. Filter DOB data to doc__='01' (BISWEB) and I1 (DOB NOW) filings
+2. Extract earliest DOB date from date columns
+3. Group by BIN to get earliest date per building
+4. Create `hpd_multifamily_finance_new_construction_with_dob_date_df` by joining HPD data with DOB dates
+
+This cell was likely lost during a notebook edit or was accidentally cleared.
+
+**Fix:**
+Added the DOB date extraction code to Cell 18:
+- Filters `combined_dob_with_normalized_bbl_df` to relevant records (doc__='01' or I1 suffix)
+- Identifies and parses date columns (pre__filing_date, paid, fully_paid, etc.)
+- Extracts earliest DOB date per record using `get_earliest_date()` function
+- Groups by BIN to get minimum earliest_dob_date per BIN
+- Joins with HPD data using BIN matching (with BBL fallback)
+- Creates `hpd_multifamily_finance_new_construction_with_dob_date_df` with columns:
+  - All original HPD columns
+  - `earliest_dob_date`: Earliest DOB milestone date
+  - `earliest_dob_date_source`: Which column the date came from
+  - `fully_permitted_date`: The fully_permitted date specifically
+
+**Testing:**
+- Notebook should now run through Cell 19 without NameError
+- `hpd_multifamily_finance_new_construction_with_dob_date_df` should have 581 rows with DOB dates populated where available
+
