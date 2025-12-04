@@ -78,6 +78,9 @@ This project analyzes affordable housing production in NYC, correlating HPD fina
   - Fully Permitted date vs Project Start Date timing (0-10 points)
 - [x] Create data quality report CSV with scores for each building (0-50 total points)
 - [x] Add score visualization and statistics with Poor/Fair/Good/Excellent categories
+- [x] Add detailed score distribution (count per score, percentiles, histogram)
+- [x] Implement run history tracking (output/data_quality_run_history.csv)
+- [x] Add comparison to previous run showing improvement/regression for each metric
 
 ### CEQR (City Environmental Quality Review) Integration
 - [x] Create CEQR API search functionality by BBL, borough/block/lot
