@@ -488,3 +488,84 @@ if 'bbl' in dob_now_bbl_df.columns:
 - Overall `Buildings with DOBNOW I1 matches` should be > 0
 - Test script: `testing_debugging/investigate_glenmore_manor.py`
 
+---
+
+## String 'nan' Matching Causes Incorrect Date Assignment
+
+**Status: Fixed**
+**Date: Dec 4, 2025**
+
+**Bug Description:**
+Buildings with no BIN or BBL were showing `earliest_dob_date = 2003-09-11` and `fully_permitted_date = 2014-08-12` even though they had no DOB match. These specific dates were being incorrectly assigned to 29 buildings.
+
+**Symptoms:**
+- 29 buildings in data_quality_report.csv showed `earliest_dob_date = 2003-09-11` and `fully_permitted_date = 2014-08-12`
+- Most of these buildings had `BIN = NaN` and `BBL = NaN` (no identifiers)
+- Some showed `count_nb_bisweb_01_matched = 1` even though they had no BIN/BBL to match on
+- The dates 2003-09-11 and 2014-08-12 appeared to come from nowhere
+
+**Root Cause:**
+When pandas converts NaN to string, it produces the literal string `'nan'`. The code was:
+
+```python
+# HPD side:
+hpd_df['BIN_str'] = hpd_df['BIN'].astype(str).str.replace('.0', '')
+# If BIN is NaN: BIN_str = 'nan'
+
+# DOB side:
+dob_df['bin_normalized'] = dob_df['bin__'].astype(str).str.replace('.0', '')
+# If bin__ is NaN: bin_normalized = 'nan'
+
+# Merge:
+pd.merge(hpd_df, dob_df, on='BIN_str')  # 'nan' == 'nan' MATCHES!
+```
+
+The `.notna()` filter only checks for actual null values, NOT the string `'nan'`. So when grouping DOB records:
+```python
+dob_bin_min = dob_filtered_df[dob_filtered_df['bin_normalized'].notna()].groupby('bin_normalized')
+```
+
+This included a group where `bin_normalized = 'nan'` containing the earliest dates across ALL DOB records with missing BINs.
+
+When merged with HPD data, ALL HPD buildings with missing BINs (which also have `BIN_str = 'nan'`) matched this group and received those dates.
+
+**Affected Building IDs:**
+927561, 965150, 983133, 986549, 988878, 989393, 1004426, 1008645, 974229, 994674, 977177, 955101, 996855, 1000227, 967338, 1017632, 1004751, 1013384, 1014223, 1014053, 1013778, 399127, 1004583, 1011389, 1015498, 965899, 1008199, 1017566
+
+**Fix:**
+1. Added filters to exclude string `'nan'` and empty strings when grouping by BIN/BBL:
+```python
+dob_bin_min = dob_filtered_df[
+    dob_filtered_df['bin_normalized'].notna() & 
+    (dob_filtered_df['bin_normalized'] != 'nan') &
+    (dob_filtered_df['bin_normalized'] != '')
+].groupby('bin_normalized', as_index=False).agg({...})
+```
+
+2. Created a helper function to properly normalize BIN strings:
+```python
+def normalize_bin_str(bin_val):
+    if pd.isna(bin_val):
+        return None
+    s = str(bin_val).replace('.0', '')
+    if s.lower() == 'nan' or s == '':
+        return None
+    return s
+
+hpd_df['BIN_str'] = hpd_df['BIN'].apply(normalize_bin_str)
+```
+
+3. Applied the same fix to:
+   - DOB date extraction BIN groupby (Cell 18)
+   - DOB date extraction BBL groupby (Cell 18)
+   - CO date extraction BIN groupby (Cell 23)
+   - CO date extraction BBL groupby (Cell 23)
+
+**Files Modified:**
+- `run_workflow.ipynb`: Cells 18 and 23
+
+**Testing:**
+- Buildings without BIN/BBL should now have `earliest_dob_date = NaN` (no match)
+- Buildings with valid BIN/BBL should still get correct dates
+- The suspicious dates 2003-09-11 and 2014-08-12 should no longer appear for unmatched buildings
+
