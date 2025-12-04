@@ -647,10 +647,17 @@ def query_dob_for_condo_bbls(bbl_list, limit=50000):
         print(f"  No condo properties found among {len(bbl_list)} BBLs")
         return pd.DataFrame()
     
-    # Collect all unique BBLs to query
+    # Collect all unique BBLs to query and build reverse mapping
     bbls_to_query = set()
-    for related_bbls in condo_map.values():
+    # Map: related_bbl -> set of original HPD BBLs that map to it
+    related_to_original = {}
+    
+    for original_bbl, related_bbls in condo_map.items():
         bbls_to_query.update(related_bbls)
+        for related_bbl in related_bbls:
+            if related_bbl not in related_to_original:
+                related_to_original[related_bbl] = set()
+            related_to_original[related_bbl].add(original_bbl)
     
     condo_count = len(condo_map)
     
@@ -693,6 +700,34 @@ def query_dob_for_condo_bbls(bbl_list, limit=50000):
     
     if all_results:
         combined = pd.concat(all_results, ignore_index=True)
+        
+        # Step 5: Add original HPD BBL for matching
+        # Reconstruct BBL from borough/block/lot in results and map back to original
+        def get_original_hpd_bbl(row):
+            """Map DOB record back to original HPD BBL for joining"""
+            # Get borough code
+            borough_map = {'MANHATTAN': '1', 'BRONX': '2', 'BROOKLYN': '3', 'QUEENS': '4', 'STATEN ISLAND': '5'}
+            borough_code = borough_map.get(str(row.get('borough', '')).upper(), '')
+            block = str(row.get('block', '')).zfill(5)
+            lot = str(row.get('lot', '')).zfill(5)
+            
+            if borough_code and block and lot:
+                # Reconstruct BBL from DOB record
+                dob_bbl = f"{borough_code}{block}{lot[-4:]}"  # lot is 4 digits in BBL
+                dob_bbl_normalized = dob_bbl.zfill(10)
+                
+                # Find original HPD BBL that maps to this
+                if dob_bbl_normalized in related_to_original:
+                    # Return first original BBL (there could be multiple)
+                    return list(related_to_original[dob_bbl_normalized])[0]
+            return None
+        
+        combined['hpd_bbl_match'] = combined.apply(get_original_hpd_bbl, axis=1)
+        
+        # Count how many records got matched
+        matched_count = combined['hpd_bbl_match'].notna().sum()
+        print(f"  Tagged {matched_count}/{len(combined)} records with original HPD BBL for matching")
+        
         print(f"\n  ✅ Condo fallback found {len(combined)} total records")
         return combined
     else:
