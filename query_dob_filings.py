@@ -470,12 +470,160 @@ def get_all_condo_related_bbls(bbl):
         return set()
 
 
+def batch_get_condo_base_bbls(bbl_list, batch_size=50):
+    """
+    Batch lookup of condo relationships using OR queries.
+    
+    Searches both condo_billing_bbl and condo_base_bbl columns in batches
+    to find all condo-related BBLs efficiently.
+    
+    Args:
+        bbl_list: List of BBLs to check
+        batch_size: Number of BBLs per API query
+    
+    Returns:
+        dict: Mapping of input BBL -> set of all related BBLs (including base)
+    """
+    # Normalize all BBLs to 10-digit strings
+    normalized_bbls = []
+    for bbl in bbl_list:
+        try:
+            normalized_bbls.append(str(int(float(bbl))).zfill(10))
+        except:
+            continue
+    
+    if not normalized_bbls:
+        return {}
+    
+    # Maps: input_bbl -> base_bbl
+    bbl_to_base = {}
+    all_base_bbls = set()
+    
+    print(f"  Step 1: Finding base BBLs for {len(normalized_bbls)} input BBLs...")
+    
+    # Step 1a: Batch search in condo_billing_bbl column
+    for i in range(0, len(normalized_bbls), batch_size):
+        batch = normalized_bbls[i:i+batch_size]
+        
+        # Build OR query for billing BBL search
+        or_conditions = " OR ".join([f"condo_billing_bbl='{bbl}'" for bbl in batch])
+        params = {
+            '$where': or_conditions,
+            '$limit': 50000
+        }
+        
+        try:
+            response = requests.get(CONDO_BILLING_URL, params=params, timeout=60)
+            response.raise_for_status()
+            data = response.json()
+            
+            for record in data:
+                billing_bbl = str(record.get('condo_billing_bbl', '')).zfill(10)
+                base_bbl = str(record.get('condo_base_bbl', '')).zfill(10)
+                if billing_bbl in batch:
+                    bbl_to_base[billing_bbl] = base_bbl
+                    all_base_bbls.add(base_bbl)
+            
+            print(f"    Batch {i//batch_size + 1}: Found {len(data)} billing BBL matches")
+            time.sleep(0.1)
+        except Exception as e:
+            print(f"    Batch {i//batch_size + 1}: Error - {str(e)[:50]}")
+    
+    # Step 1b: For BBLs not found as billing, check if they ARE base BBLs
+    unfound_bbls = [bbl for bbl in normalized_bbls if bbl not in bbl_to_base]
+    if unfound_bbls:
+        print(f"  Step 1b: Checking {len(unfound_bbls)} BBLs as potential base BBLs...")
+        
+        for i in range(0, len(unfound_bbls), batch_size):
+            batch = unfound_bbls[i:i+batch_size]
+            
+            # Build OR query for base BBL search
+            or_conditions = " OR ".join([f"condo_base_bbl='{bbl}'" for bbl in batch])
+            params = {
+                '$where': or_conditions,
+                '$limit': 50000
+            }
+            
+            try:
+                response = requests.get(CONDO_BILLING_URL, params=params, timeout=60)
+                response.raise_for_status()
+                data = response.json()
+                
+                # Find which BBLs in our batch are actually base BBLs
+                found_base_bbls = set()
+                for record in data:
+                    base_bbl = str(record.get('condo_base_bbl', '')).zfill(10)
+                    if base_bbl in batch:
+                        found_base_bbls.add(base_bbl)
+                
+                for base_bbl in found_base_bbls:
+                    bbl_to_base[base_bbl] = base_bbl  # It maps to itself
+                    all_base_bbls.add(base_bbl)
+                
+                print(f"    Batch {i//batch_size + 1}: Found {len(found_base_bbls)} base BBLs")
+                time.sleep(0.1)
+            except Exception as e:
+                print(f"    Batch {i//batch_size + 1}: Error - {str(e)[:50]}")
+    
+    print(f"  Found {len(bbl_to_base)} condo properties with {len(all_base_bbls)} unique base BBLs")
+    
+    # Step 2: Get ALL billing BBLs for each base BBL
+    if not all_base_bbls:
+        return {}
+    
+    print(f"  Step 2: Getting all billing BBLs for {len(all_base_bbls)} base BBLs...")
+    
+    # Maps: base_bbl -> set of all related BBLs
+    base_to_all_bbls = {}
+    base_bbl_list = list(all_base_bbls)
+    
+    for i in range(0, len(base_bbl_list), batch_size):
+        batch = base_bbl_list[i:i+batch_size]
+        
+        or_conditions = " OR ".join([f"condo_base_bbl='{bbl}'" for bbl in batch])
+        params = {
+            '$where': or_conditions,
+            '$limit': 50000
+        }
+        
+        try:
+            response = requests.get(CONDO_BILLING_URL, params=params, timeout=60)
+            response.raise_for_status()
+            data = response.json()
+            
+            for record in data:
+                base_bbl = str(record.get('condo_base_bbl', '')).zfill(10)
+                billing_bbl = str(record.get('condo_billing_bbl', '')).zfill(10)
+                
+                if base_bbl not in base_to_all_bbls:
+                    base_to_all_bbls[base_bbl] = {base_bbl}  # Include base itself
+                base_to_all_bbls[base_bbl].add(billing_bbl)
+            
+            print(f"    Batch {i//batch_size + 1}: Retrieved billing BBLs for batch")
+            time.sleep(0.1)
+        except Exception as e:
+            print(f"    Batch {i//batch_size + 1}: Error - {str(e)[:50]}")
+    
+    # Build final result: input_bbl -> set of all related BBLs
+    result = {}
+    for input_bbl, base_bbl in bbl_to_base.items():
+        if base_bbl in base_to_all_bbls:
+            result[input_bbl] = base_to_all_bbls[base_bbl]
+        else:
+            result[input_bbl] = {base_bbl, input_bbl}
+    
+    total_related = sum(len(v) for v in result.values())
+    print(f"  Total: {len(result)} condo properties, {total_related} related BBLs")
+    
+    return result
+
+
 def query_dob_for_condo_bbls(bbl_list, limit=50000):
     """
     Query DOB BISWEB and DOB NOW for NB filings on condo-related BBLs.
     
     For each input BBL:
-    1. Find all condo-related BBLs (base + billing)
+    1. Find all condo-related BBLs (base + billing) using batched queries
     2. Query DOB APIs for NB filings on all related BBLs
     
     Args:
@@ -491,15 +639,20 @@ def query_dob_for_condo_bbls(bbl_list, limit=50000):
     print(f"Checking {len(bbl_list)} BBLs for condo relationships...")
     
     all_results = []
-    condo_count = 0
-    bbls_to_query = set()
     
-    # Step 1: Collect all condo-related BBLs
-    for bbl in bbl_list:
-        related_bbls = get_all_condo_related_bbls(bbl)
-        if related_bbls:
-            condo_count += 1
-            bbls_to_query.update(related_bbls)
+    # Step 1: Batch lookup of condo relationships
+    condo_map = batch_get_condo_base_bbls(bbl_list)
+    
+    if not condo_map:
+        print(f"  No condo properties found among {len(bbl_list)} BBLs")
+        return pd.DataFrame()
+    
+    # Collect all unique BBLs to query
+    bbls_to_query = set()
+    for related_bbls in condo_map.values():
+        bbls_to_query.update(related_bbls)
+    
+    condo_count = len(condo_map)
     
     if not bbls_to_query:
         print(f"  No condo properties found among {len(bbl_list)} BBLs")
